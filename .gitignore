@@ -1,0 +1,15 @@
+node_modules/
+.cache/
+dist/
+.env
+apps/server/.env
+apps/web/dist/
+data/*.db
+data/*.db-journal
+data/audio/*
+!data/audio/.gitkeep
+logs/*.log
+logs/*.json
+generated/
+.DS_Store
+*.tsbuildinfo

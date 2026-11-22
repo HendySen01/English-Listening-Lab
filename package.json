@@ -1,0 +1,23 @@
+{
+  "name": "english-learning-lab",
+  "private": true,
+  "workspaces": [
+    "apps/server",
+    "apps/web"
+  ],
+  "scripts": {
+    "setup": "npm install && npm run db:push -w @lab/server",
+    "dev": "concurrently -n server,web -c teal,blue \"npm run dev -w @lab/server\" \"npm run dev -w @lab/web\"",
+    "test": "npm run test -w @lab/server",
+    "start": "npm run start -w @lab/server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  },
+  "allowScripts": {
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "esbuild@0.28.2": true,
+    "prisma@6.19.3": true
+  }
+}
