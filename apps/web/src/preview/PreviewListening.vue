@@ -1,21 +1,26 @@
 <template>
   <section class="rd">
     <p class="rd-kicker">听力 · {{ lesson.title }}</p>
-    <div class="rd-stages" role="tablist" aria-label="听力阶段">
-      <button v-for="(label, stageIndex) in stages" :key="label" class="rd-pill" type="button" :aria-pressed="stage === stageIndex" @click="stage = stageIndex">{{ label }}</button>
+    <div class="rd-stages">
+      <div class="rd-segment" role="tablist" aria-label="听力阶段">
+        <button v-for="(label, stageIndex) in stages" :key="label" class="rd-pill" type="button" :aria-pressed="stage === stageIndex" @click="stage = stageIndex">{{ label }}</button>
+      </div>
     </div>
     <div class="rd-tools" style="margin-bottom: 12px">
-      <button class="rd-play" type="button" @click="toggle">{{ playing ? "暂停" : "播放" }}</button>
+      <button class="rd-pill primary" type="button" @click="toggle">{{ playing ? "暂停" : "播放" }}</button>
       <button class="rd-pill" type="button" @click="replay">重播</button>
-      <button v-for="item in previewRates" :key="item" class="rd-pill" type="button" :aria-pressed="rate === item" @click="setRate(item)">{{ item }}×</button>
+      <div class="rd-segment" role="group" aria-label="语速">
+        <button v-for="item in previewRates" :key="item" class="rd-pill" type="button" :aria-pressed="rate === item" @click="setRate(item)">{{ item }}×</button>
+      </div>
       <span class="rd-source">{{ voice }} · 第 {{ current + 1 }} 句 · 浏览器语音</span>
     </div>
     <p v-if="stage === 0" class="rd-note">盲听不显示原文，也不显示中文。写下的大意会留在这里。</p>
     <label v-if="stage === 0" class="rd-note">这段话大概在说什么？
-      <textarea v-model="gist" class="rd-field" rows="3"></textarea>
+      <textarea v-model="gist" class="rd-field" rows="3" placeholder="用简体中文写一句大意"></textarea>
     </label>
 
-    <div v-if="stage === 1 || stage === 2" class="rd-frame">
+    <ExpandFold :open="stage === 1 || stage === 2" :limit="false">
+    <div class="rd-frame">
       <div class="rd-read">
         <div class="rd-tools">
           <button class="rd-pill" type="button" :aria-pressed="showAll" @click="showAll = !showAll">{{ showAll ? "隐藏整篇翻译" : "显示整篇翻译" }}</button>
@@ -32,13 +37,16 @@
       </div>
       <ReaderNotes :key="listeningPassages[current].id + selected" :word="selected" :analysis="analysis" :source="source" :loading="loading" :error="error" :mark="marks[cacheKey(listeningPassages[current].id, selected)] || ''" @speak="speakEnglish($event, rate, note)" @mark="setMark" @explain="explain" />
     </div>
+    </ExpandFold>
 
-    <div v-if="stage === 3" class="rd-box">
+    <ExpandFold :open="stage === 3" :limit="false">
+    <div class="rd-box">
       <p class="rd-copy">用中文或简单英文写下主要意思。原文先不展开。</p>
-      <textarea v-model="recall" class="rd-field" rows="4"></textarea>
+      <textarea v-model="recall" class="rd-field" rows="4" placeholder="用简体中文或简单英文写下大意"></textarea>
       <button class="rd-pill primary" style="margin-top: 8px" type="button" @click="checkRecall">对照原文</button>
       <p v-if="recallNote" class="rd-status" role="status">{{ recallNote }}</p>
     </div>
+    </ExpandFold>
   </section>
 </template>
 
@@ -46,6 +54,7 @@
 import { computed, onBeforeUnmount, ref } from "vue"
 import { Volume2 } from "lucide-vue-next"
 import BlurText from "./BlurText.vue"
+import ExpandFold from "./ExpandFold.vue"
 import ReaderNotes from "./ReaderNotes.vue"
 import { useExplanation } from "./explain"
 import { cacheKey, listeningPassages, tokenize } from "./reader-data"

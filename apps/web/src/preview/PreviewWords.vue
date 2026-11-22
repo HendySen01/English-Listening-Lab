@@ -7,7 +7,7 @@
       </div>
       <router-link class="rd-pill" to="/preview/context">去语境阅读</router-link>
     </div>
-    <div class="rd-frame">
+    <div class="rd-frame rd-workspace">
       <div class="rd-read">
         <div class="rd-meta">
           <h2 class="rd-word" translate="no">{{ lemma }}</h2>
@@ -16,7 +16,9 @@
         <p class="rd-meta" translate="no">
           <span>{{ analysis?.pronunciation || "没有单独标音标" }}</span><span>·</span><span>{{ analysis?.partOfSpeech }}</span><span>·</span><span>{{ voice }}</span>
           <button class="rd-pill" type="button" @click="speakEnglish(passage.sentence, rate, (message) => voice = message)">读例句</button>
-          <button v-for="item in previewRates" :key="item" class="rd-pill" type="button" :aria-pressed="rate === item" @click="setRate(item)">{{ item }}×</button>
+          <span class="rd-segment" role="group" aria-label="语速">
+            <button v-for="item in previewRates" :key="item" class="rd-pill" type="button" :aria-pressed="rate === item" @click="setRate(item)">{{ item }}×</button>
+          </span>
         </p>
         <p class="rd-sentence" style="font-size: clamp(22px, 2.4vw, 32px)" translate="no">
           <template v-for="(token, tokenIndex) in tokens" :key="tokenIndex">
@@ -30,7 +32,7 @@
           <button class="rd-pill primary" type="button" @click="next">{{ index === wordPassages.length - 1 ? "去听力" : "下一个" }}</button>
         </div>
       </div>
-      <ReaderNotes :key="passage.id + selected" :word="selected" :analysis="analysis" :source="source" :loading="loading" :error="error" :mark="marks[cacheKey(passage.id, selected)] || ''" @speak="speakEnglish($event, rate, (message) => voice = message)" @mark="setMark" @explain="explain" />
+      <ReaderNotes column-scroll :key="passage.id + selected" :word="selected" :analysis="analysis" :source="source" :loading="loading" :error="error" :mark="marks[cacheKey(passage.id, selected)] || ''" @speak="speakEnglish($event, rate, (message) => voice = message)" @mark="setMark" @explain="explain" />
     </div>
   </section>
 </template>

@@ -3,13 +3,15 @@
     <p class="rd-kicker">Reading in context · 预览</p>
     <h1 class="rd-title">Words make sense <em>together.</em></h1>
     <p class="rd-note">英文保持清晰。整句中文默认模糊，悬停不会揭开。右侧会标明这是静态示范、AI 缓存，还是刚刚生成的解释。</p>
-    <div class="rd-frame">
+    <div class="rd-frame rd-workspace">
       <div class="rd-read">
         <div class="rd-tools">
           <button class="rd-pill" type="button" :disabled="index === 0" @click="move(-1)">上一句</button>
           <button class="rd-pill" type="button" :disabled="index === contextPassages.length - 1" @click="move(1)">下一句</button>
           <button class="rd-pill primary" type="button" @click="speakEnglish(passage.sentence, rate, (message) => voice = message)">朗读句子</button>
-          <button v-for="item in previewRates" :key="item" class="rd-pill" type="button" :aria-pressed="rate === item" @click="setRate(item)">{{ item }}×</button>
+          <div class="rd-segment" role="group" aria-label="语速">
+            <button v-for="item in previewRates" :key="item" class="rd-pill" type="button" :aria-pressed="rate === item" @click="setRate(item)">{{ item }}×</button>
+          </div>
           <button class="rd-pill" type="button" :aria-pressed="showAll" @click="showAll = !showAll">{{ showAll ? "隐藏整篇翻译" : "显示整篇翻译" }}</button>
         </div>
         <p class="rd-sentence" translate="no">
@@ -21,7 +23,7 @@
         <p class="rd-source">{{ voice }}</p>
         <BlurText :text="passage.translation" :clear="showAll || revealed.has(passage.id)" @toggle="toggleSentence" />
       </div>
-      <ReaderNotes :key="cacheKey(passage.id, selected)" :word="selected" :analysis="analysis" :source="source" :loading="loading" :error="error" :mark="marks[cacheKey(passage.id, selected)] || ''" @speak="speakEnglish($event, rate, (message) => voice = message)" @mark="setMark" @explain="explain" />
+      <ReaderNotes column-scroll :key="cacheKey(passage.id, selected)" :word="selected" :analysis="analysis" :source="source" :loading="loading" :error="error" :mark="marks[cacheKey(passage.id, selected)] || ''" @speak="speakEnglish($event, rate, (message) => voice = message)" @mark="setMark" @explain="explain" />
     </div>
     <p class="rd-note"><router-link class="rd-link" to="/preview/words-card">上一版单词卡片还在</router-link></p>
   </section>

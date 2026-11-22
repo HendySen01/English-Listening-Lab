@@ -22,10 +22,17 @@
         <h3 class="rd-label">当前句子里的用法 <span>IN CONTEXT</span></h3>
         <p class="rd-copy">{{ analysis.usage }}</p>
       </div>
-      <button class="rd-pill" style="margin-top: 14px" type="button" :aria-expanded="deep" @click="deep = !deep">
+      <div class="rd-tools" style="margin-top: 16px">
+        <button class="rd-pill primary" type="button" :disabled="loading || source === 'cache' || source === 'live'" @click="$emit('explain')">{{ explainLabel }}</button>
+        <button class="rd-pill" type="button" :aria-pressed="mark === 'known'" @click="$emit('mark', 'known')">我已认识</button>
+        <button class="rd-pill" type="button" :aria-pressed="mark === 'again'" @click="$emit('mark', 'again')">需要加强</button>
+      </div>
+      <p v-if="error" class="rd-status" role="status">{{ error }}</p>
+      <p v-if="mark" class="rd-status" role="status">{{ mark === "known" ? "已在这次预览里记为认识。" : "已标成需要加强。" }}没有新建复习记录，重复点击也不会再加一条。</p>
+      <button :id="`${foldId}-button`" class="rd-pill" style="margin-top: 14px" type="button" :aria-expanded="deep" :aria-controls="foldId" @click="toggleDeep">
         {{ deep ? "收起深入解析" : "深入解析：词源、词根和语义线路" }}
       </button>
-      <div v-if="deep">
+      <ExpandFold :id="foldId" :open="deep" :limit="!columnScroll">
         <div class="rd-section">
           <h3 class="rd-label">词源与原始画面 <span>ETYMOLOGY</span></h3>
           <p class="rd-copy">{{ analysis.etymology.originalImage }}</p>
@@ -59,23 +66,16 @@
             <p class="rd-source">{{ example.contextNote }}</p>
           </div>
         </div>
-      </div>
-      <div class="rd-tools" style="margin-top: 16px">
-        <button class="rd-pill primary" type="button" :disabled="loading || source === 'cache' || source === 'live'" @click="$emit('explain')">{{ explainLabel }}</button>
-        <button class="rd-pill" type="button" :aria-pressed="mark === 'known'" @click="$emit('mark', 'known')">我已认识</button>
-        <button class="rd-pill" type="button" :aria-pressed="mark === 'again'" @click="$emit('mark', 'again')">需要加强</button>
-      </div>
-      <p v-if="error" class="rd-status" role="status">{{ error }}</p>
-      <p v-if="mark" class="rd-status" role="status">{{ mark === "known" ? "已在这次预览里记为认识。" : "已标成需要加强。" }}没有新建复习记录，重复点击也不会再加一条。</p>
+      </ExpandFold>
     </template>
   </aside>
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue"
+import { computed, ref, useId } from "vue"
 import { Volume2 } from "lucide-vue-next"
 import BlurText from "./BlurText.vue"
-import { computed } from "vue"
+import ExpandFold from "./ExpandFold.vue"
 import type { Analysis } from "./reader-data"
 import type { ExplainSource } from "./explain"
 
@@ -86,6 +86,7 @@ const props = defineProps<{
   source: ExplainSource
   loading: boolean
   error: string
+  columnScroll?: boolean
 }>()
 defineEmits<{ speak: [text: string]; mark: [value: "known" | "again"]; explain: [] }>()
 const sourceLabel = computed(() => {
@@ -100,7 +101,16 @@ const explainLabel = computed(() => {
   return "AI 深度解析"
 })
 const deep = ref(false)
+const foldId = useId()
 const open = ref(new Set<string>())
+function toggleDeep() {
+  if (deep.value) {
+    const fold = document.getElementById(foldId)
+    const button = document.getElementById(`${foldId}-button`)
+    if (fold?.contains(document.activeElement) && button instanceof HTMLElement) button.focus()
+  }
+  deep.value = !deep.value
+}
 function toggle(key: string) {
   const next = new Set(open.value)
   if (next.has(key)) next.delete(key)

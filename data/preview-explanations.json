@@ -261,6 +261,70 @@
           }
         ]
       }
+    },
+    "context-reader-schema-4::museum::finally": {
+      "passageId": "museum",
+      "word": "finally",
+      "sentence": "After hours of driving, we finally found a quiet parking space behind the museum.",
+      "source": "live",
+      "model": "deepseek-flash",
+      "createdAt": "2026-11-22T17:23:49.678Z",
+      "attempts": 1,
+      "analysis": {
+        "text": "finally",
+        "type": "word",
+        "pronunciation": "/ˈfaɪnəli/",
+        "partOfSpeech": "副词",
+        "definition": "经过长时间或一系列事件后，最终；终于",
+        "usage": "常用于句首或动词前，强调经过等待、努力或曲折后某事发生，带有“如释重负”或“结果终于到来”的语气。",
+        "etymology": {
+          "origin": "源自拉丁语 finis（终点），经古法语 final 及中古英语 final 进入英语，加 -ly 构成副词。",
+          "originalImage": "一条道路走到尽头，边界线出现在眼前，表示到达终点。",
+          "prefix": "无",
+          "root": "fin-（拉丁语 finis，意为“终点、界限”）",
+          "suffix": "-al（形容词后缀）+ -ly（副词后缀）",
+          "certainty": "较确定"
+        },
+        "semanticRoutes": [
+          {
+            "label": "线路A：到达终点",
+            "steps": "拉丁语 finis（终点）→ final（最终的）→ finally（最终地）",
+            "modernMeaning": "经过一段时间后最终发生",
+            "domain": "日常"
+          },
+          {
+            "label": "线路B：最终决定",
+            "steps": "finis（界限）→ final（决定性的）→ finally（作为最后一点）",
+            "modernMeaning": "在列举或论证中表示“最后一点”",
+            "domain": "商业"
+          },
+          {
+            "label": "线路C：最终状态",
+            "steps": "finis（结束）→ final（最终的）→ finally（在最终状态下）",
+            "modernMeaning": "表示经过调试或处理后达到最终结果",
+            "domain": "技术"
+          }
+        ],
+        "comparisons": [
+          {
+            "word": "eventually",
+            "partOfSpeech": "副词",
+            "difference": "eventually 更强调“作为结果最终发生”，时间跨度可长可短；finally 更强调“经过等待或曲折后终于到来”，常带主观情绪。"
+          }
+        ],
+        "examples": [
+          {
+            "text": "After hours of driving, we finally found a quiet parking space behind the museum.",
+            "translation": "开了几个小时车后，我们终于在博物馆后面找到了一个安静的停车位。",
+            "contextNote": "强调经过长时间驾驶后的如释重负感，finally 位于动词 found 之前。"
+          },
+          {
+            "text": "She finally finished the report at midnight.",
+            "translation": "她终于在午夜完成了报告。",
+            "contextNote": "强调经过长时间工作后任务完成，finally 传达“总算完成”的语气。"
+          }
+        ]
+      }
     }
   }
 }

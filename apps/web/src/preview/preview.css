@@ -308,13 +308,13 @@
   font-size: 15px;
   text-decoration: none;
   cursor: pointer;
-  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
 }
 
 .pv-btn.secondary { background: var(--pv-surface); color: var(--pv-text); }
 
 .pv-btn:hover { background: var(--hover-surface); }
-.pv-btn:active { background: var(--active-surface); }
+.pv-btn:active:not(:disabled) { background: var(--active-surface); transform: translateY(1px); }
 .pv-btn[aria-pressed="true"],
 .pv-btn[aria-pressed="true"]:hover,
 .pv-btn[aria-pressed="true"]:active {
@@ -331,6 +331,7 @@
   border-color: var(--pv-border);
   color: var(--pv-text-secondary);
   cursor: not-allowed;
+  transform: none;
 }
 
 .pv-btn.ghost {
@@ -359,7 +360,8 @@
 }
 
 .pv-btn.primary:hover { background: var(--accent-hover); color: var(--on-accent); }
-.pv-btn.primary:active { background: var(--pv-primary-hover); filter: brightness(0.92); }
+.pv-btn.primary:active:not(:disabled) { background: var(--pv-primary-hover); filter: brightness(0.92); transform: translateY(1px); }
+.pv-btn.primary:disabled:active { transform: none; filter: none; }
 .pv-btn.primary:disabled,
 .pv-btn.primary:disabled:hover,
 .pv-btn.primary:disabled:active {
