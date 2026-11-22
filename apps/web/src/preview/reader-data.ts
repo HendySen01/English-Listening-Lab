@@ -1,4 +1,4 @@
-// Context Reader 的解释合同，供预览对照。预览不发起模型请求。
+// Context Reader 的解释合同。静态样本只作对照；真实解析走预览缓存接口。
 export const EXPLANATION_SYSTEM_PROMPT = "你是英语词源与语境解析专家。全文中文内容必须使用简体中文，英文例句及词源原文可保留英文。只输出一个严格合法、可被 JSON.parse 解析的 JSON 对象，不要 Markdown、代码围栏、注释或任何额外文字。所有字符串中的双引号和换行必须正确转义。examples 必须正好 2 条，semanticRoutes 必须正好 3 条。格式示例：{\"text\":\"word\",\"type\":\"word\",\"pronunciation\":\"/wɜːd/\",\"partOfSpeech\":\"名词\",\"definition\":\"语境释义\",\"usage\":\"用法\",\"etymology\":{\"prefix\":\"无\",\"root\":\"词根\",\"suffix\":\"无\",\"origin\":\"来源\",\"originalImage\":\"原始画面\",\"certainty\":\"较确定\"},\"semanticRoutes\":[{\"label\":\"线路A\",\"steps\":\"演变过程\",\"modernMeaning\":\"现代义\",\"domain\":\"日常\"},{\"label\":\"线路B\",\"steps\":\"演变过程\",\"modernMeaning\":\"现代义\",\"domain\":\"商业\"},{\"label\":\"线路C\",\"steps\":\"演变过程\",\"modernMeaning\":\"现代义\",\"domain\":\"技术\"}],\"comparisons\":[{\"word\":\"near-synonym\",\"partOfSpeech\":\"名词\",\"difference\":\"区别\"}],\"examples\":[{\"text\":\"Example sentence.\",\"translation\":\"例句译文\",\"contextNote\":\"语境说明\"},{\"text\":\"Another example.\",\"translation\":\"另一例句\",\"contextNote\":\"语境说明\"}]}。必须包含全部字段。"
 
 export function explanationUserPrompt(sentence: string, word: string) {
@@ -42,6 +42,11 @@ export const contextPassages: Passage[] = [
     sentence: museumSentence,
     translation: "开了几个小时的车后，我们终于在博物馆后面找到一个安静的停车位。",
     phrases: ["parking space"],
+  },
+  {
+    id: "curious-look",
+    sentence: "He gave me a curious look.",
+    translation: "他看了我一眼，神情里带着好奇。",
   },
   {
     id: "bus-stop",
@@ -362,21 +367,6 @@ export function tokenize(sentence: string, phrases: string[] = []) {
     rest = rest.slice(other ? other[0].length : 1)
   }
   return tokens
-}
-
-export function speakEnglish(text: string, rate = 1, onDone?: (message: string) => void) {
-  if (!("speechSynthesis" in window)) {
-    onDone?.("这台浏览器不能朗读")
-    return
-  }
-  window.speechSynthesis.cancel()
-  const utter = new SpeechSynthesisUtterance(text)
-  utter.lang = "en-US"
-  utter.rate = rate
-  utter.onend = () => onDone?.("浏览器语音 · 已读完")
-  utter.onerror = () => onDone?.("浏览器没有开始朗读")
-  window.speechSynthesis.speak(utter)
-  onDone?.("浏览器语音")
 }
 
 export function validateAnalysis(raw: unknown) {

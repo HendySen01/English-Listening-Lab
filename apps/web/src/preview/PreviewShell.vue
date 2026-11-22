@@ -18,7 +18,7 @@
           <button type="button" @click="hold('历史课程仍在正式页面。预览不会切换课程版本。')"><History aria-hidden="true" :size="18" />历史课程</button>
           <button type="button" @click="hold('设置仍在正式页面。预览里的深色开关只影响这三页。')"><Settings aria-hidden="true" :size="18" />设置</button>
         </nav>
-        <p class="pv-note">示例数据。不调用 AI，不写入学习记录。</p>
+        <p class="pv-note">示例课程。只有「AI 深度解析」会调用模型，结果只写入预览缓存。</p>
       </aside>
       <div class="pv-main">
         <header class="pv-top">
@@ -83,8 +83,8 @@ function hold(message: string) {
   left: 12px;
   top: -40px;
   z-index: 8;
-  background: #fff;
-  color: #182b32;
+  background: var(--surface);
+  color: var(--text-primary);
   padding: 8px 12px;
 }
 .pv-skip:focus { top: 8px; }

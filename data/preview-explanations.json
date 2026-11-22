@@ -1,0 +1,266 @@
+{
+  "version": "context-reader-schema-4",
+  "entries": {
+    "context-reader-schema-4::museum::museum": {
+      "passageId": "museum",
+      "word": "museum",
+      "sentence": "After hours of driving, we finally found a quiet parking space behind the museum.",
+      "source": "live",
+      "model": "deepseek-flash",
+      "createdAt": "2026-11-22T16:48:11.124Z",
+      "attempts": 1,
+      "analysis": {
+        "text": "museum",
+        "type": "word",
+        "pronunciation": "/mjuˈziːəm/",
+        "partOfSpeech": "名词",
+        "definition": "博物馆；收藏并展出文物、艺术品或科学标本的场所",
+        "usage": "可数名词，常与定冠词连用（the museum），也可构成复合词如 history museum、art museum；在句中作地点状语或宾语",
+        "etymology": {
+          "origin": "拉丁语 museum，源自希腊语 mouseion（缪斯的神庙/学术场所），经法语进入英语",
+          "originalImage": "古希腊供奉缪斯女神的神庙，学者们聚集于此研究艺术与学问",
+          "prefix": "无",
+          "root": "muse（缪斯，希腊神话中掌管艺术与科学的九位女神）",
+          "suffix": "-um（拉丁中性名词后缀，表示场所）",
+          "certainty": "较确定"
+        },
+        "semanticRoutes": [
+          {
+            "label": "线路A",
+            "steps": "缪斯神庙 → 学术研究场所 → 收藏展示文物艺术品的公共建筑",
+            "modernMeaning": "博物馆",
+            "domain": "日常"
+          },
+          {
+            "label": "线路B",
+            "steps": "缪斯神庙 → 文化收藏机构 → 文化旅游与教育产业中的核心场所",
+            "modernMeaning": "博物馆（作为文化机构与旅游景点）",
+            "domain": "商业"
+          },
+          {
+            "label": "线路C",
+            "steps": "缪斯神庙 → 学术资料库 → 数字化馆藏与虚拟博物馆",
+            "modernMeaning": "数字博物馆/在线馆藏平台",
+            "domain": "技术"
+          }
+        ],
+        "comparisons": [
+          {
+            "word": "gallery",
+            "partOfSpeech": "名词",
+            "difference": "gallery 侧重画廊或美术馆，常指商业性艺术展览空间；museum 更广泛，涵盖历史、科学、艺术等各类收藏机构，通常规模更大且具公共教育功能"
+          }
+        ],
+        "examples": [
+          {
+            "text": "After hours of driving, we finally found a quiet parking space behind the museum.",
+            "translation": "开了几个小时的车后，我们终于在博物馆后面找到了一个安静的停车位。",
+            "contextNote": "museum 在此作地点名词，与 behind 构成方位短语，指博物馆建筑后方"
+          },
+          {
+            "text": "The museum houses a remarkable collection of ancient Greek pottery.",
+            "translation": "这家博物馆收藏了一批珍贵的古希腊陶器。",
+            "contextNote": "museum 作主语，与 house 搭配表示“收藏/展出”，体现其作为收藏机构的核心功能"
+          }
+        ]
+      }
+    },
+    "context-reader-schema-4::word-curious::curious": {
+      "passageId": "word-curious",
+      "word": "curious",
+      "sentence": "She is curious about the new shop.",
+      "source": "live",
+      "model": "deepseek-flash",
+      "createdAt": "2026-11-22T16:48:14.101Z",
+      "attempts": 1,
+      "analysis": {
+        "text": "curious",
+        "type": "word",
+        "pronunciation": "/ˈkjʊəriəs/",
+        "partOfSpeech": "形容词",
+        "definition": "好奇的；对某事物感兴趣并想要了解的",
+        "usage": "常用于 be curious about sth. 结构，表示对某事感到好奇；也可单独使用描述人的性格特征",
+        "etymology": {
+          "origin": "源自拉丁语 curiosus（细心的、好奇的），由 cura（关心）派生，经古法语 curius 进入英语",
+          "originalImage": "一个人对某事物格外留心、仔细打量，想要弄清楚它的来龙去脉",
+          "prefix": "无",
+          "root": "cur-（来自拉丁语 cura，意为关心、注意、照料）",
+          "suffix": "-ious（形容词后缀，表示具有某种性质的）",
+          "certainty": "较确定"
+        },
+        "semanticRoutes": [
+          {
+            "label": "线路A：细心照料",
+            "steps": "拉丁语 cura（关心、照料）→ curiosus（细心的、认真的）→ 古法语 curius → 英语 curious",
+            "modernMeaning": "仔细的、留心的（古旧义，现较少用）",
+            "domain": "日常"
+          },
+          {
+            "label": "线路B：求知欲",
+            "steps": "拉丁语 curiosus（想要知道的）→ 中古英语 curious（渴望了解的）→ 现代英语 curious about sth.",
+            "modernMeaning": "好奇的、感兴趣的",
+            "domain": "日常"
+          },
+          {
+            "label": "线路C：奇特的",
+            "steps": "拉丁语 curiosus（精细的、讲究的）→ 英语 curious（精细的、奇特的）→ 引申为“奇怪的、稀奇的”",
+            "modernMeaning": "奇特的、稀奇的",
+            "domain": "日常"
+          }
+        ],
+        "comparisons": [
+          {
+            "word": "interested",
+            "partOfSpeech": "形容词",
+            "difference": "interested 强调对某事物有兴趣、愿意投入；curious 更强调因不了解而产生想知道答案的求知欲，语气更主动"
+          }
+        ],
+        "examples": [
+          {
+            "text": "She is curious about the new shop.",
+            "translation": "她对新开的商店感到好奇。",
+            "contextNote": "curious about 后接名词，表示对某具体事物产生兴趣并想了解"
+          },
+          {
+            "text": "The child was curious to know what was inside the box.",
+            "translation": "那孩子很想知道盒子里装的是什么。",
+            "contextNote": "curious to do sth. 结构，表示急切想要知道或做某事"
+          }
+        ]
+      }
+    },
+    "context-reader-schema-4::curious-look::curious": {
+      "passageId": "curious-look",
+      "word": "curious",
+      "sentence": "He gave me a curious look.",
+      "source": "live",
+      "model": "deepseek-flash",
+      "createdAt": "2026-11-22T16:48:18.576Z",
+      "attempts": 1,
+      "analysis": {
+        "text": "curious",
+        "type": "word",
+        "pronunciation": "/ˈkjʊəriəs/",
+        "partOfSpeech": "形容词",
+        "definition": "好奇的；探究的；此处指因感到奇怪而带有探究意味的",
+        "usage": "常用于 give sb a curious look / a curious glance 等搭配，表示因不解或感兴趣而投以探究的目光；也可直接修饰名词，如 a curious mind。",
+        "etymology": {
+          "origin": "源自拉丁语 curiosus（细心的、爱探究的），由 cura（关心、照料）派生，经古法语 curius 进入中古英语。",
+          "originalImage": "一个人对某事物格外留心、反复端详，想要弄清楚它的底细。",
+          "prefix": "无",
+          "root": "cur-（来自拉丁语 cura，意为关心、照料、留意）",
+          "suffix": "-ious（形容词后缀，表示具有某种性质的）",
+          "certainty": "较确定"
+        },
+        "semanticRoutes": [
+          {
+            "label": "线路A：留心照料",
+            "steps": "拉丁语 cura（关心、照料）→ curiosus（细心的、周到的）→ 古法语 curius → 中古英语 curious（仔细的、审慎的）→ 现代英语 curious（好奇的）",
+            "modernMeaning": "好奇的；想知道的",
+            "domain": "日常"
+          },
+          {
+            "label": "线路B：精细考究",
+            "steps": "拉丁语 curiosus（细心的）→ 引申为精心制作的、精巧的 → 英语 curious 曾表示精细的、精致的（今已古旧）→ 现代多保留在 curious 的'奇特、古怪'义中",
+            "modernMeaning": "奇特的；古怪的",
+            "domain": "文化"
+          },
+          {
+            "label": "线路C：探究求知",
+            "steps": "cura（留意）→ curiosus（爱探究的）→ 学术语境中 curious 指对知识有探究欲 → 现代科学用语 curious 表示'出于求知而探究的'",
+            "modernMeaning": "有求知欲的；爱探究的",
+            "domain": "学术"
+          }
+        ],
+        "comparisons": [
+          {
+            "word": "inquisitive",
+            "partOfSpeech": "形容词",
+            "difference": "inquisitive 更强调主动追问、爱打听，常带轻微贬义；curious 更中性，可仅表示感兴趣或觉得奇怪。"
+          },
+          {
+            "word": "strange",
+            "partOfSpeech": "形容词",
+            "difference": "strange 侧重'陌生、不寻常'的客观属性；curious 表示'奇特'时更带主观的引人注意、令人想探究的意味。"
+          }
+        ],
+        "examples": [
+          {
+            "text": "He gave me a curious look.",
+            "translation": "他好奇地看了我一眼。",
+            "contextNote": "give sb a curious look 是固定搭配，表示因不解或感兴趣而投以探究的目光，语气中性。"
+          },
+          {
+            "text": "Children are naturally curious about the world around them.",
+            "translation": "孩子们天生对周围的世界充满好奇。",
+            "contextNote": "be curious about sth 表示'对某事物好奇'，此处为褒义，强调求知欲。"
+          }
+        ]
+      }
+    },
+    "context-reader-schema-4::word-curious::about": {
+      "passageId": "word-curious",
+      "word": "about",
+      "sentence": "She is curious about the new shop.",
+      "source": "live",
+      "model": "deepseek-flash",
+      "createdAt": "2026-11-22T17:03:33.524Z",
+      "attempts": 1,
+      "analysis": {
+        "text": "about",
+        "type": "word",
+        "pronunciation": "/əˈbaʊt/",
+        "partOfSpeech": "介词",
+        "definition": "对……感到好奇；关于（某事），表示好奇所指向的对象",
+        "usage": "常用于 be curious about / be excited about / talk about 等结构中，后接名词、代词或动名词，引出心理活动或言语所涉及的对象",
+        "etymology": {
+          "origin": "古英语 abūtan，由 on + būtan 合并而来，原义为“在……外面、在……周围”",
+          "originalImage": "一个人站在某物的外围，环绕着它转，视线与注意力都落在它周围",
+          "prefix": "a-（古英语 on 的弱化形式，意为“在、于”）",
+          "root": "būtan（古英语，意为“外面、周围”，由 be-“by” + ūtan“outside”构成）",
+          "suffix": "无",
+          "certainty": "较确定"
+        },
+        "semanticRoutes": [
+          {
+            "label": "空间环绕线",
+            "steps": "古英语 abūtan（在……外面、在……周围）→ 中古英语 abouten（在四周、到处）→ 现代英语 about（在……附近、围绕）",
+            "modernMeaning": "在……周围、在……附近",
+            "domain": "日常"
+          },
+          {
+            "label": "话题指向线",
+            "steps": "“围绕某物” → “围绕某个话题” → 言语或思绪所涉及的对象",
+            "modernMeaning": "关于、涉及",
+            "domain": "日常"
+          },
+          {
+            "label": "心理关注线",
+            "steps": "“围绕某物转” → 注意力落在某物上 → 对某物产生关切或好奇",
+            "modernMeaning": "对……（感到好奇/关心）",
+            "domain": "心理"
+          }
+        ],
+        "comparisons": [
+          {
+            "word": "on",
+            "partOfSpeech": "介词",
+            "difference": "about 强调话题的“围绕、涉及”，语气较泛；on 强调“专门论述、聚焦于”，如 a book on history 比 a book about history 更显正式、系统"
+          }
+        ],
+        "examples": [
+          {
+            "text": "She is curious about the new shop.",
+            "translation": "她对那家新店感到好奇。",
+            "contextNote": "curious about 为固定搭配，about 引出好奇的对象，口语与书面语均常用"
+          },
+          {
+            "text": "We talked about the plan for hours.",
+            "translation": "我们讨论那个计划讨论了好几个小时。",
+            "contextNote": "talk about 中 about 引出谈话所涉及的话题，体现“围绕某话题”的语义"
+          }
+        ]
+      }
+    }
+  }
+}

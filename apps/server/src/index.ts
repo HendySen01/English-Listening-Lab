@@ -6,6 +6,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { AppError } from "./errors.js";
 import { chatJson, parseModelJson, serviceStatus, ttsStatus, normalizeDeepseekVoice } from "./ai.js";
+import { explainPreview, lookupPreviewExplanation } from "./previewExplain.js";
 import {
   addSession,
   activateLesson,
@@ -43,6 +44,21 @@ fs.mkdirSync(path.resolve("D:/Projects/English-Listening-Lab/logs"), { recursive
 
 app.use(cors({ origin: [/^http:\/\/127\.0\.0\.1:\d+$/, /^http:\/\/localhost:\d+$/] }));
 app.use(express.json({ limit: "1mb" }));
+
+app.get("/api/preview/explain", (req, res) => {
+  const passageId = String(req.query.passageId || "");
+  const word = String(req.query.word || "");
+  const sentence = String(req.query.sentence || "");
+  res.json(lookupPreviewExplanation(passageId, word, sentence) || { source: "miss" });
+});
+
+app.post("/api/preview/explain", async (req, res, next) => {
+  try {
+    res.json(await explainPreview(req.body || {}));
+  } catch (error) {
+    next(error);
+  }
+});
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, database: process.env.DATABASE_URL });

@@ -4,10 +4,12 @@
     <p v-if="!word" class="rd-note">点击左边的单词。这里会显示这个词在当前句子里的意思，而不是一份词典列表。</p>
     <template v-else-if="!analysis">
       <h2 class="rd-word" style="font-size: 36px" translate="no">{{ word }}</h2>
-      <p class="rd-copy">这个词还没有准备好的深度样本。预览不会临场调用模型，也不会把一句占位说明当成解析成功。</p>
+      <p class="rd-copy">这个词还没有静态样本，也没有匹配当前句子的缓存。</p>
+      <button class="rd-pill primary" type="button" :disabled="loading" @click="$emit('explain')">{{ explainLabel }}</button>
+      <p v-if="error" class="rd-status" role="status">{{ error }}</p>
     </template>
     <template v-else>
-      <p class="rd-source">预览样本。结构与 Context Reader 的深度解析一致，这次没有调用 AI。</p>
+      <p class="rd-source">{{ sourceLabel }}</p>
       <div class="rd-meta" style="justify-content: space-between;">
         <h2 class="rd-word" style="font-size: 40px" translate="no">{{ analysis.text }}</h2>
         <button class="rd-icon" type="button" :aria-label="`朗读 ${analysis.text}`" @click="$emit('speak', analysis.text)">
@@ -20,7 +22,7 @@
         <h3 class="rd-label">当前句子里的用法 <span>IN CONTEXT</span></h3>
         <p class="rd-copy">{{ analysis.usage }}</p>
       </div>
-      <button class="rd-pill leaf" style="margin-top: 14px" type="button" :aria-expanded="deep" @click="deep = !deep">
+      <button class="rd-pill" style="margin-top: 14px" type="button" :aria-expanded="deep" @click="deep = !deep">
         {{ deep ? "收起深入解析" : "深入解析：词源、词根和语义线路" }}
       </button>
       <div v-if="deep">
@@ -59,9 +61,11 @@
         </div>
       </div>
       <div class="rd-tools" style="margin-top: 16px">
+        <button class="rd-pill primary" type="button" :disabled="loading || source === 'cache' || source === 'live'" @click="$emit('explain')">{{ explainLabel }}</button>
         <button class="rd-pill" type="button" :aria-pressed="mark === 'known'" @click="$emit('mark', 'known')">我已认识</button>
         <button class="rd-pill" type="button" :aria-pressed="mark === 'again'" @click="$emit('mark', 'again')">需要加强</button>
       </div>
+      <p v-if="error" class="rd-status" role="status">{{ error }}</p>
       <p v-if="mark" class="rd-status" role="status">{{ mark === "known" ? "已在这次预览里记为认识。" : "已标成需要加强。" }}没有新建复习记录，重复点击也不会再加一条。</p>
     </template>
   </aside>
@@ -71,10 +75,30 @@
 import { ref } from "vue"
 import { Volume2 } from "lucide-vue-next"
 import BlurText from "./BlurText.vue"
+import { computed } from "vue"
 import type { Analysis } from "./reader-data"
+import type { ExplainSource } from "./explain"
 
-defineProps<{ word: string; analysis: Analysis | null; mark: "" | "known" | "again" }>()
-defineEmits<{ speak: [text: string]; mark: [value: "known" | "again"] }>()
+const props = defineProps<{
+  word: string
+  analysis: Analysis | null
+  mark: "" | "known" | "again"
+  source: ExplainSource
+  loading: boolean
+  error: string
+}>()
+defineEmits<{ speak: [text: string]; mark: [value: "known" | "again"]; explain: [] }>()
+const sourceLabel = computed(() => {
+  if (props.source === "live") return "实时 AI。刚刚由 DeepSeek 生成，并写入了预览缓存。"
+  if (props.source === "cache") return "AI 缓存。同一句子和词再次打开时直接读取，没有再次调用。"
+  if (props.source === "sample") return "静态示范。结构与 Context Reader 一致，不是这次的模型回复。"
+  return "还没有可用解释。"
+})
+const explainLabel = computed(() => {
+  if (props.loading) return "正在解析"
+  if (props.source === "cache" || props.source === "live") return "已载入 AI 解释"
+  return "AI 深度解析"
+})
 const deep = ref(false)
 const open = ref(new Set<string>())
 function toggle(key: string) {

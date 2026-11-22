@@ -11,11 +11,12 @@
       <div class="rd-read">
         <div class="rd-meta">
           <h2 class="rd-word" translate="no">{{ lemma }}</h2>
-          <button class="rd-icon" type="button" :aria-label="`朗读 ${lemma}`" @click="speakEnglish(lemma, 1, (message) => voice = message)"><Volume2 aria-hidden="true" :size="18" /></button>
+          <button class="rd-icon" type="button" :aria-label="`朗读 ${lemma}`" @click="speakEnglish(lemma, rate, (message) => voice = message)"><Volume2 aria-hidden="true" :size="18" /></button>
         </div>
         <p class="rd-meta" translate="no">
           <span>{{ analysis?.pronunciation || "没有单独标音标" }}</span><span>·</span><span>{{ analysis?.partOfSpeech }}</span><span>·</span><span>{{ voice }}</span>
-          <button class="rd-pill leaf" type="button" @click="speakEnglish(passage.sentence, 1, (message) => voice = message)">读例句</button>
+          <button class="rd-pill" type="button" @click="speakEnglish(passage.sentence, rate, (message) => voice = message)">读例句</button>
+          <button v-for="item in previewRates" :key="item" class="rd-pill" type="button" :aria-pressed="rate === item" @click="setRate(item)">{{ item }}×</button>
         </p>
         <p class="rd-sentence" style="font-size: clamp(22px, 2.4vw, 32px)" translate="no">
           <template v-for="(token, tokenIndex) in tokens" :key="tokenIndex">
@@ -29,7 +30,7 @@
           <button class="rd-pill primary" type="button" @click="next">{{ index === wordPassages.length - 1 ? "去听力" : "下一个" }}</button>
         </div>
       </div>
-      <ReaderNotes :key="passage.id + selected" :word="selected" :analysis="analysis" :mark="marks[cacheKey(passage.id, selected)] || ''" @speak="speakEnglish($event, 1, (message) => voice = message)" @mark="setMark" />
+      <ReaderNotes :key="passage.id + selected" :word="selected" :analysis="analysis" :source="source" :loading="loading" :error="error" :mark="marks[cacheKey(passage.id, selected)] || ''" @speak="speakEnglish($event, rate, (message) => voice = message)" @mark="setMark" @explain="explain" />
     </div>
   </section>
 </template>
@@ -40,8 +41,10 @@ import { useRouter } from "vue-router"
 import { Volume2 } from "lucide-vue-next"
 import BlurText from "./BlurText.vue"
 import ReaderNotes from "./ReaderNotes.vue"
-import { cacheKey, lookupAnalysis, speakEnglish, tokenize, wordPassages } from "./reader-data"
+import { useExplanation } from "./explain"
+import { cacheKey, tokenize, wordPassages } from "./reader-data"
 import { previewLesson } from "./sample"
+import { choosePreviewRate, previewRate, previewRates, speakEnglish } from "./speech"
 import "./reader.css"
 
 const router = useRouter()
@@ -50,11 +53,14 @@ const index = ref(0)
 const selected = ref("curious")
 const clear = ref(false)
 const voice = ref("尚未播放")
+const rate = previewRate
 const marks = ref<Record<string, "known" | "again">>({})
 const passage = computed(() => wordPassages[index.value])
 const lemma = computed(() => passage.value.id.replace("word-", ""))
 const tokens = computed(() => tokenize(passage.value.sentence))
-const analysis = computed(() => lookupAnalysis(passage.value.id, selected.value))
+const passageId = computed(() => passage.value.id)
+const sentence = computed(() => passage.value.sentence)
+const { analysis, source, loading, error, explain } = useExplanation(passageId, selected, sentence)
 
 function shift(nextIndex: number) {
   index.value = nextIndex
@@ -68,6 +74,11 @@ function next() {
     return
   }
   shift(index.value + 1)
+}
+function setRate(next: number) {
+  const speaking = voice.value.startsWith("浏览器语音") && !voice.value.includes("用时")
+  choosePreviewRate(next)
+  if (speaking) void speakEnglish(passage.value.sentence, next, (message) => { voice.value = message })
 }
 function setMark(value: "known" | "again") {
   marks.value = { ...marks.value, [cacheKey(passage.value.id, selected.value)]: value }
