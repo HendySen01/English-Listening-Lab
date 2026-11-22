@@ -5,10 +5,12 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { AppError } from "./errors.js";
-import { aiUsedToday, chatJson, dailyLimit, llmStatus, parseModelJson, serviceStatus, ttsStatus, normalizeDeepseekVoice } from "./ai.js";
+import { chatJson, parseModelJson, serviceStatus, ttsStatus, normalizeDeepseekVoice } from "./ai.js";
 import {
   addSession,
+  activateLesson,
   answerQuestion,
+  createAiVersion,
   dashboard,
   dueCount,
   easierExample,
@@ -16,6 +18,7 @@ import {
   getSettings,
   history,
   lessonById,
+  lessonVersions,
   library,
   markKnown,
   practiceWord,
@@ -61,7 +64,15 @@ app.post("/api/ai/test", async (req, res, next) => {
     const result = await chatJson("test", "只返回 JSON：{\"ok\":true}", "{\"ping\":true}");
     const parsed = parseModelJson(result.content) as { ok?: boolean };
     if (parsed.ok !== true) throw new AppError(502, "AI_INVALID", "接口有响应，但没有返回约定的测试结果。");
-    res.json({ ok: true, model: result.model, promptTokens: result.promptTokens, completionTokens: result.completionTokens });
+    const status = await serviceStatus();
+    res.json({
+      ok: true,
+      provider: status.llmProvider,
+      model: result.model,
+      message: `AI 连接成功 · ${status.llmProvider} · ${result.model}`,
+      promptTokens: result.promptTokens,
+      completionTokens: result.completionTokens,
+    });
   } catch (error) {
     next(error);
   }
@@ -100,13 +111,29 @@ app.post("/api/lessons/today", async (_req, res, next) => {
   }
 });
 
-app.post("/api/lessons/regenerate", async (req, res, next) => {
+app.post("/api/lessons/ai-version", async (req, res, next) => {
   try {
     if (req.body?.confirmCost !== true) {
-      throw new AppError(400, "COST_NOT_CONFIRMED", "重新生成会替换今天的课程。如果配置了 AI，还会产生一次调用费用。");
+      throw new AppError(400, "COST_NOT_CONFIRMED", "使用 AI 生成新版本会调用一次语言模型，可能产生费用。原来的课程会保留。");
     }
-    const lesson = await ensureLesson(localISODate(), { force: true });
-    res.json(presentLesson(lesson));
+    res.json(await createAiVersion(localISODate()));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/lessons/:id/activate", async (req, res, next) => {
+  try {
+    res.json(await activateLesson(req.params.id));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/lessons/today/versions", async (_req, res, next) => {
+  try {
+    const lesson = await findLessonByDate(localISODate());
+    res.json(lesson ? await lessonVersions(lesson.lessonDate) : []);
   } catch (error) {
     next(error);
   }
@@ -263,11 +290,11 @@ app.post("/api/tts", async (req, res, next) => {
     if (!text.trim()) throw new AppError(400, "EMPTY", "没有可朗读的文本");
     const tts = ttsStatus();
     if (req.body?.useOnline !== true) {
-      res.json({ mode: "browser", rate, sourceLabel: "浏览器语音" });
+      res.json({ mode: "browser", rate, sourceLabel: "当前语音：浏览器语音" });
       return;
     }
     if (!tts.configured || !tts.usable) {
-      res.json({ mode: "browser", rate, sourceLabel: "浏览器语音", warning: tts.note });
+      res.json({ mode: "browser", rate, sourceLabel: "当前语音：浏览器语音", warning: tts.note });
       return;
     }
     const host = tts.host;
@@ -298,30 +325,30 @@ app.post("/api/tts", async (req, res, next) => {
               body: JSON.stringify({ model: tts.model || "tts-1", voice, input: text, speed: rate }),
             });
       } catch {
-        res.json({ mode: "browser", rate, sourceLabel: "浏览器语音", warning: "在线语音连不上，已切换到浏览器语音。" });
+        res.json({ mode: "browser", rate, sourceLabel: "当前语音：浏览器语音", warning: "在线语音连不上，已切换到浏览器语音。" });
         return;
       }
       if (!response.ok) {
         res.json({
           mode: "browser",
           rate,
-          sourceLabel: "浏览器语音",
+          sourceLabel: "当前语音：浏览器语音",
           warning: `在线语音返回 ${response.status}，已切换到浏览器语音。`,
         });
         return;
       }
       const bytes = Buffer.from(await response.arrayBuffer());
       if (bytes.length < 100) {
-        res.json({ mode: "browser", rate, sourceLabel: "浏览器语音", warning: "在线语音没有返回可用音频，已切换到浏览器语音。" });
+        res.json({ mode: "browser", rate, sourceLabel: "当前语音：浏览器语音", warning: "在线语音没有返回可用音频，已切换到浏览器语音。" });
         return;
       }
       fs.writeFileSync(file, bytes);
     }
     const voiceNote = deepseek && process.env.TTS_VOICE && !["stella", "tide"].includes(process.env.TTS_VOICE)
-      ? `在线 AI 语音 · DeepSeek · ${voice}。原配置的 ${process.env.TTS_VOICE} 不是该服务的音色。`
+      ? `当前语音：DeepSeek 在线 TTS · ${voice}。原配置的 ${process.env.TTS_VOICE} 不是该服务的音色。`
       : deepseek
-        ? `在线 AI 语音 · DeepSeek · ${voice}`
-        : `在线 AI 语音 · ${host}`;
+        ? `当前语音：DeepSeek 在线 TTS · ${voice}`
+        : `当前语音：在线 TTS · ${host}`;
     res.json({ mode: "file", url: `/api/audio/${filename}`, rate, sourceLabel: voiceNote });
   } catch (error) {
     next(error);

@@ -1,21 +1,24 @@
 <template>
   <article class="card stack">
-    <h3>听力 · 建议 20 分钟</h3>
-    <p class="muted">先听，不看原文。离线课是慢速短句；配置 AI 后才会按学习天数生成更完整的短文。</p>
+    <h3>今日课程听力</h3>
+    <p>先听这篇和今天新词配套的短文，不看原文。</p>
     <div class="steps">
       <button class="step" :class="{ current: lesson.progress.listening.round === 1 }" @click="setRound(1)">1 盲听</button>
       <button class="step" :class="{ current: lesson.progress.listening.round === 2 }" @click="setRound(2)">2 原文</button>
       <button class="step" :class="{ current: lesson.progress.listening.round === 3 }" @click="setRound(3)">3 再听</button>
       <button class="step" :class="{ current: lesson.progress.listening.round === 4 }" @click="setRound(4)">4 复述</button>
     </div>
-    <div class="row">
-      <button class="choice active" @click="speech.play(currentText, rate)">播放</button>
-      <button class="choice" @click="speech.play(currentText, Math.max(0.8, rate - 0.2))">慢一点</button>
-      <button class="choice" @click="speech.pause">暂停</button>
-      <button class="choice" @click="speech.resume">继续</button>
-      <button class="choice" @click="speech.stop">停止</button>
+    <div class="player">
+      <button class="play compact" @click="toggle">{{ speech.status.value === "播放中" ? "暂停" : "播放" }}</button>
+      <div>
+        <p class="audio-state">{{ voiceLabel }} · {{ speech.status.value }}<span v-if="speech.detail.value"> · {{ speech.detail.value }}</span></p>
+        <div class="row">
+          <button class="choice" @click="replay">重播</button>
+          <button class="choice" @click="speech.play(currentText, Math.max(0.8, rate - 0.2))">放慢</button>
+          <button class="choice" @click="speech.stop">停止</button>
+        </div>
+      </div>
     </div>
-    <p class="audio-state">状态：{{ speech.status.value }} · {{ speech.sourceLabel.value }} {{ speech.detail.value }}</p>
 
     <div v-if="lesson.progress.listening.round === 1">
       <p>这段话大概在说什么？用几个词写下来即可。</p>
@@ -58,6 +61,12 @@ const emit = defineEmits<{ save: [progress?: Progress] }>();
 const speech = useSpeech();
 const selected = ref("");
 const chinese = ref(false);
+const voiceLabel = computed(() => {
+  const raw = speech.sourceLabel.value;
+  if (raw.includes("DeepSeek")) return "在线语音 · DeepSeek";
+  if (raw.includes("浏览器")) return "浏览器语音";
+  return "尚未播放";
+});
 const currentText = computed(() =>
   props.lesson.progress.listening.round === 2
     ? plain(props.lesson.listening.chunks[0] || props.lesson.listening.text)
@@ -77,6 +86,14 @@ function gloss(token: string) {
 function setRound(round: number) {
   props.lesson.progress.listening.round = round;
   emit("save");
+}
+function replay() {
+  speech.stop();
+  void speech.play(currentText.value, props.rate);
+}
+function toggle() {
+  if (speech.status.value === "播放中") speech.pause();
+  else speech.play(currentText.value, props.rate);
 }
 async function check() {
   const result = await api<{ mode: string; note: string }>(`/api/lessons/${props.lesson.id}/recall`, {

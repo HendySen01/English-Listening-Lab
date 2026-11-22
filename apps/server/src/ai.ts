@@ -39,6 +39,7 @@ export async function serviceStatus() {
     llmState,
     llmModel: llm.model,
     llmHost: llm.host,
+    llmProvider: providerName(llm.host),
     ttsConfigured: tts.configured,
     ttsUsable: tts.usable,
     ttsState: tts.state,
@@ -114,10 +115,15 @@ export async function chatJson(kind: string, system: string, user: string): Prom
 
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
+    const detail = sanitizeProviderMessage(payload);
     await prisma.aIUsageRecord.create({
-      data: { kind, model, success: false, error: `http ${response.status}` },
+      data: { kind, model, success: false, error: `http ${response.status}${detail ? `: ${detail}` : ""}`.slice(0, 240) },
     });
-    throw new AppError(502, "AI_REJECTED", `语言模型接口返回 ${response.status}。没有把不完整内容存成课程。`);
+    throw new AppError(
+      502,
+      "AI_REJECTED",
+      `语言模型接口返回 ${response.status}${detail ? `：${detail}` : ""}。没有把不完整内容存成课程。`,
+    );
   }
   const content = payload?.choices?.[0]?.message?.content;
   if (typeof content !== "string" || !content.trim()) {
@@ -153,6 +159,18 @@ function numberOrNull(value: unknown) {
   return typeof value === "number" ? value : null;
 }
 
+function sanitizeProviderMessage(payload: unknown) {
+  const message = (payload as { error?: { message?: unknown } } | null)?.error?.message;
+  if (typeof message !== "string") return "";
+  return message.replace(/sk-[a-zA-Z0-9_-]+/g, "[redacted]").slice(0, 160);
+}
+
+export function providerName(host: string) {
+  if (host.includes("deepseek")) return "DeepSeek";
+  if (host.includes("openai")) return "OpenAI";
+  return host || "未配置";
+}
+
 export function ttsStatus() {
   const key = process.env.TTS_API_KEY?.trim() || "";
   const base = process.env.TTS_BASE_URL?.trim() || "";
@@ -160,30 +178,19 @@ export function ttsStatus() {
   const voice = process.env.TTS_VOICE || "";
   const host = hostOf(base);
   const deepseek = host.includes("deepseek");
-  const chatModel = /chat|reasoner/i.test(model) && !/tts/i.test(model);
   if (!key || !base) {
-    return { configured: false, usable: false, state: "未配置", model: "", voice: "", host, note: "没有在线语音配置，播放使用浏览器语音。" };
-  }
-  if (deepseek && chatModel) {
-    return {
-      configured: true,
-      usable: true,
-      state: "已配置，但模型名不是语音模型",
-      model,
-      voice: normalizeDeepseekVoice(voice),
-      host,
-      note: `${model} 是对话模型，不能当作语音模型。在线播放会改走 DeepSeek 的 /v1/tools/tts，音色使用 ${normalizeDeepseekVoice(voice)}。`,
-    };
+    return { configured: false, usable: false, state: "未配置", model: "", voice: "", host, note: "没有在线语音配置。当前播放使用浏览器语音。" };
   }
   if (deepseek) {
+    const mapped = normalizeDeepseekVoice(voice);
     return {
       configured: true,
       usable: true,
-      state: "已配置，尚未在本页验证",
-      model: "deepseek-tts",
-      voice: normalizeDeepseekVoice(voice),
+      state: "尚未验证",
+      model: "POST /v1/tools/tts",
+      voice: mapped,
       host,
-      note: "DeepSeek 语音接口是 /v1/tools/tts，音色只有 stella 和 tide。速度由播放器本地调整。",
+      note: `配置里的 TTS_MODEL=${model || "空"} 不是语音模型，不会拿去请求。DeepSeek 在线语音是独立的 /v1/tools/tts，音色只有 stella 和 tide，当前会使用 ${mapped}。还没有成功的在线播放记录，所以状态是尚未验证。默认播放仍是浏览器语音。`,
     };
   }
   return {

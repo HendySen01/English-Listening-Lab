@@ -10,10 +10,10 @@
     </template>
     <label class="row"><input type="checkbox" v-model="recognizeOnly" /> 我只是认得，还不能自己用</label>
     <div class="row">
-      <button class="choice" @click="rate('again')">忘记 · {{ item.intervals.again }} 天</button>
-      <button class="choice" @click="rate('hard')">困难 · {{ item.intervals.hard }} 天</button>
-      <button class="choice" @click="rate('good')">记得 · {{ item.intervals.good }} 天</button>
-      <button class="choice" @click="rate('easy')">非常熟悉 · {{ item.intervals.easy }} 天</button>
+      <button class="choice" @click="rate('again')">忘记 · {{ item.intervals?.again ?? "—" }} 天</button>
+      <button class="choice" @click="rate('hard')">困难 · {{ item.intervals?.hard ?? "—" }} 天</button>
+      <button class="choice" @click="rate('good')">记得 · {{ item.intervals?.good ?? "—" }} 天</button>
+      <button class="choice" @click="rate('easy')">非常熟悉 · {{ item.intervals?.easy ?? "—" }} 天</button>
     </div>
   </div>
 </template>

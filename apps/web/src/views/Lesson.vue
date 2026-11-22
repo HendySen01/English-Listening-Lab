@@ -1,19 +1,28 @@
 <template>
   <section class="stack" v-if="lesson">
-    <div class="card">
-      <div class="row" style="justify-content: space-between">
-        <div>
-          <h2>{{ lesson.listening.title }}</h2>
-          <p class="muted">{{ lesson.lessonDate }} · {{ lesson.themeLabel }} · {{ lesson.difficulty }} · {{ lesson.sourceLabel }} · 约 {{ lesson.estimatedMinutes }} 分钟</p>
-        </div>
-        <button class="choice" @click="regenerate">重新生成</button>
+    <div class="card lesson-head">
+      <div>
+        <p class="origin">{{ lesson.sourceLabel }}</p>
+        <h2>{{ lesson.listening.title }}</h2>
+        <p class="muted">{{ lesson.themeLabel }} · {{ lesson.difficulty }} · {{ lesson.newWordCount }} 个新词 · 约 {{ lesson.estimatedMinutes }} 分钟</p>
       </div>
-      <p v-if="lesson.poolNote">{{ lesson.poolNote }}</p>
+      <div class="row">
+        <button class="choice" @click="details = true">课程详情</button>
+        <button class="choice" @click="makeAiVersion">重新生成课程</button>
+      </div>
       <p v-if="error" class="bad">{{ error }}</p>
     </div>
-    <div class="steps">
-      <button v-for="step in steps" :key="step.id" class="step" :class="{ current: progress.step === step.id }" @click="go(step.id)">
-        {{ step.label }}
+    <el-dialog v-model="details" title="课程详情" width="520px">
+      <p>当前学习使用这一节课的单词、例句、听力和进度。换一版不会删除已经做过的复习。</p>
+      <div class="stack">
+        <button v-for="item in versions" :key="item.id" class="choice" :class="{ active: item.active }" @click="activate(item.id)">
+          {{ item.sourceLabel }}<span v-if="item.active"> · 正在学习</span>
+        </button>
+      </div>
+    </el-dialog>
+    <div class="flow" aria-label="学习步骤">
+      <button v-for="(step, index) in steps" :key="step.id" class="step" :class="{ current: progress.step === step.id, done: progress.completed?.includes(step.id) }" @click="go(step.id)">
+        {{ index + 1 }} {{ step.label }}
       </button>
     </div>
 
@@ -86,7 +95,9 @@ import ReviewCard from "../components/ReviewCard.vue";
 const route = useRoute();
 const store = useAppStore();
 const lesson = ref<Lesson | null>(null);
+const details = ref(false);
 const reviews = ref<any[]>([]);
+const versions = ref<Array<{ id: string; version: number; active: boolean; source: string; sourceLabel: string }>>([]);
 const error = ref("");
 const recognizeOnly = ref(false);
 const steps = [
@@ -153,20 +164,34 @@ async function submitRating(rating: string) {
   await reload();
 }
 
-async function regenerate() {
-  if (!confirm("重新生成会替换今天的课程。如果配置了 AI，还会产生费用。继续吗？")) return;
+async function loadVersions() {
+  versions.value = await api("/api/lessons/today/versions");
+}
+
+async function makeAiVersion() {
+  if (!confirm("重新生成会再调用一次 AI，可能产生费用。现在这节课会保留，可以在课程详情里切换回来。继续吗？")) return;
   error.value = "";
   try {
-    lesson.value = await api<Lesson>("/api/lessons/regenerate", { method: "POST", body: JSON.stringify({ confirmCost: true }) });
+    lesson.value = await api<Lesson>("/api/lessons/ai-version", { method: "POST", body: JSON.stringify({ confirmCost: true }) });
+    await loadVersions();
+    await store.load();
   } catch (err) {
-    error.value = err instanceof Error ? err.message : "重新生成失败";
+    error.value = err instanceof Error ? err.message : "AI 生成失败，原课程仍可学习";
   }
+}
+
+async function activate(id: string) {
+  lesson.value = await api<Lesson>(`/api/lessons/${id}/activate`, { method: "POST" });
+  details.value = false;
+  await loadVersions();
+  await store.load();
 }
 
 onMounted(async () => {
   try {
     if (!store.dashboard) await store.load();
     await reload();
+    await loadVersions();
     await loadReviews();
   } catch (err) {
     error.value = err instanceof Error ? err.message : "课程打开失败";

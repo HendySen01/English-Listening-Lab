@@ -38,7 +38,7 @@
     <article class="card stack">
       <h2>AI 课程生成</h2>
       <p>状态：{{ system?.llmState || "正在读取" }}</p>
-      <p class="muted">服务：{{ system?.llmHost || "未配置" }} · 模型：{{ system?.llmModel || "无" }}</p>
+      <p class="muted">提供商：{{ system?.llmProvider || "未配置" }} · 模型：{{ system?.llmModel || "无" }}</p>
       <p class="muted">最近成功：{{ system?.lastSuccessAt ? formatWhen(system.lastSuccessAt) : "还没有成功调用" }}</p>
       <p class="muted">今天 {{ system?.aiUsedToday || 0 }} / {{ system?.aiDailyLimit }} 次。输入 token {{ system?.promptTokens ?? "未知" }}，输出 token {{ system?.completionTokens ?? "未知" }}。没有可靠单价时不估算费用。</p>
       <p v-if="system?.lastError" class="bad">最近失败：{{ system.lastError }}</p>
@@ -105,8 +105,8 @@ async function save() {
 async function testAi() {
   if (!confirm("测试会向当前语言模型发送一次很短的请求，可能产生少量费用。继续吗？")) return;
   try {
-    const result = await api<{ model: string }>("/api/ai/test", { method: "POST", body: JSON.stringify({ confirmCost: true }) });
-    message.value = `连接成功，模型 ${result.model}。`;
+    const result = await api<{ model: string; message?: string }>("/api/ai/test", { method: "POST", body: JSON.stringify({ confirmCost: true }) });
+    message.value = result.message || `AI 连接成功 · ${result.model}`;
     error.value = false;
     system.value = await api("/api/system");
   } catch (err) {

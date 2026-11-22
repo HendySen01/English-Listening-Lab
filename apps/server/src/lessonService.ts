@@ -67,9 +67,8 @@ function clampInt(value: unknown, min: number, max: number, fallback: number) {
 }
 
 export async function dueCount(now = new Date()) {
-  return prisma.wordProgress.count({
-    where: { due: { lte: now }, vocabulary: { knownAlready: false } },
-  });
+  const rows = await canonicalProgress();
+  return rows.filter((row) => row.reps > 0 && row.due <= now && !row.vocabulary.knownAlready).length;
 }
 
 export async function findLesson(where: { id?: string; lessonDate?: string }) {
@@ -77,22 +76,33 @@ export async function findLesson(where: { id?: string; lessonDate?: string }) {
 }
 
 export async function findLessonByDate(lessonDate: string) {
-  return prisma.dailyLesson.findUnique({ where: { lessonDate }, include: lessonInclude });
+  const active = await prisma.dailyLesson.findFirst({
+    where: { lessonDate, active: true },
+    include: lessonInclude,
+    orderBy: { version: "desc" },
+  });
+  if (active) return active;
+  return prisma.dailyLesson.findFirst({
+    where: { lessonDate },
+    include: lessonInclude,
+    orderBy: { version: "desc" },
+  });
 }
 
-export async function ensureLesson(lessonDate: string, options?: { force?: boolean }) {
+export async function ensureLesson(lessonDate: string) {
   const existing = await findLessonByDate(lessonDate);
-  if (existing && !options?.force) return existing;
-  if (existing && options?.force) {
-    await prisma.dailyLesson.delete({ where: { id: existing.id } });
-  }
+  if (existing) return existing;
   const settings = await getSettings();
   const theme = settings.theme === "Custom" && settings.customTheme.trim()
     ? settings.customTheme.trim()
     : settings.theme;
   const learned = await prisma.vocabulary.findMany({ select: { lemma: true } });
   const avoid = new Set(learned.map((item) => item.lemma.toLowerCase()));
-  const priorLessons = await prisma.dailyLesson.count({ where: { lessonDate: { lt: lessonDate } } });
+  const priorLessons = await prisma.dailyLesson.findMany({
+    where: { lessonDate: { lt: lessonDate } },
+    distinct: ["lessonDate"],
+    select: { lessonDate: true },
+  });
   const due = await dueCount();
   const hasKey = Boolean(process.env.LLM_API_KEY?.trim());
   let draft: LessonDraft;
@@ -103,7 +113,7 @@ export async function ensureLesson(lessonDate: string, options?: { force?: boole
       difficulty: settings.difficulty,
       theme,
       avoid: [...avoid],
-      priorLessons,
+      priorLessons: priorLessons.length,
       listeningLevel: settings.listeningLevel,
       wordParts: settings.wordPartsEnabled,
       dueCount: due,
@@ -115,8 +125,8 @@ export async function ensureLesson(lessonDate: string, options?: { force?: boole
       difficulty: settings.difficulty,
       theme: settings.theme === "Custom" ? "Custom" : settings.theme,
       avoid,
-      firstLesson: priorLessons === 0 && learned.length === 0,
-      priorLessons,
+      firstLesson: priorLessons.length === 0 && learned.length === 0,
+      priorLessons: priorLessons.length,
       listeningLevel: settings.listeningLevel,
       wordParts: settings.wordPartsEnabled,
       dueCount: due,
@@ -129,10 +139,13 @@ export async function ensureLesson(lessonDate: string, options?: { force?: boole
     listening: { round: 1, firstGist: "", thirdGist: "", recall: "", recallNote: "", recallMode: "" },
     shadow: { index: 0, marks: draft.listeningChunks.map(() => null) },
   };
+  const memory = await loadMemory();
   try {
     return await prisma.dailyLesson.create({
       data: {
         lessonDate,
+        version: 1,
+        active: true,
         theme: settings.theme === "Custom" ? theme : settings.theme,
         difficulty: settings.difficulty,
         newWordCount: draft.words.length,
@@ -160,7 +173,7 @@ export async function ensureLesson(lessonDate: string, options?: { force?: boole
             morphology: word.morphology ? JSON.stringify(word.morphology) : null,
             difficulty: word.difficulty,
             theme: word.theme,
-            progress: { create: cardData(emptyCard()) },
+            progress: { create: rememberedCard(memory, word.lemma) },
           })),
         },
         questions: {
@@ -279,6 +292,99 @@ function cardData(card: StoredCard) {
   };
 }
 
+type MemoryRow = {
+  due: Date;
+  stability: number;
+  difficulty: number;
+  elapsedDays: number;
+  scheduledDays: number;
+  learningSteps: number;
+  reps: number;
+  lapses: number;
+  state: number;
+  lastReview: Date | null;
+  correctCount: number;
+  incorrectCount: number;
+  familiarity: string;
+  recallAbility: string;
+  vocabulary: { lemma: string; knownAlready: boolean };
+};
+
+async function canonicalProgress() {
+  const rows = await prisma.wordProgress.findMany({ include: { vocabulary: true } });
+  const chosen = new Map<string, (typeof rows)[number]>();
+  for (const row of rows) {
+    const key = row.vocabulary.lemma.trim().toLowerCase();
+    const current = chosen.get(key);
+    if (!current || memoryRank(row) > memoryRank(current)) chosen.set(key, row);
+  }
+  return [...chosen.values()];
+}
+
+function memoryRank(row: { reps: number; lastReview: Date | null }) {
+  return row.reps * 1e15 + (row.lastReview?.getTime() ?? 0);
+}
+
+async function loadMemory() {
+  const map = new Map<string, MemoryRow>();
+  for (const row of await canonicalProgress()) map.set(row.vocabulary.lemma.trim().toLowerCase(), row);
+  return map;
+}
+
+function rememberedCard(memory: Map<string, MemoryRow>, lemma: string) {
+  const found = memory.get(lemma.trim().toLowerCase());
+  if (!found) return cardData(emptyCard());
+  return {
+    due: found.due,
+    stability: found.stability,
+    difficulty: found.difficulty,
+    elapsedDays: found.elapsedDays,
+    scheduledDays: found.scheduledDays,
+    learningSteps: found.learningSteps,
+    reps: found.reps,
+    lapses: found.lapses,
+    state: found.state,
+    lastReview: found.lastReview,
+    correctCount: found.correctCount,
+    incorrectCount: found.incorrectCount,
+    familiarity: found.familiarity,
+    recallAbility: found.recallAbility,
+  };
+}
+
+async function mirrorLemma(vocabularyId: string) {
+  const current = await prisma.wordProgress.findUnique({ where: { vocabularyId }, include: { vocabulary: true } });
+  if (!current) return;
+  const key = current.vocabulary.lemma.trim().toLowerCase();
+  const siblings = (await prisma.wordProgress.findMany({ include: { vocabulary: true } })).filter(
+    (row) => row.vocabularyId !== vocabularyId && row.vocabulary.lemma.trim().toLowerCase() === key,
+  );
+  if (!siblings.length) return;
+  await prisma.wordProgress.updateMany({
+    where: { vocabularyId: { in: siblings.map((row) => row.vocabularyId) } },
+    data: {
+      due: current.due,
+      stability: current.stability,
+      difficulty: current.difficulty,
+      elapsedDays: current.elapsedDays,
+      scheduledDays: current.scheduledDays,
+      learningSteps: current.learningSteps,
+      reps: current.reps,
+      lapses: current.lapses,
+      state: current.state,
+      lastReview: current.lastReview,
+      correctCount: current.correctCount,
+      incorrectCount: current.incorrectCount,
+      familiarity: current.familiarity,
+      recallAbility: current.recallAbility,
+    },
+  });
+  await prisma.vocabulary.updateMany({
+    where: { id: { in: siblings.map((row) => row.vocabularyId) } },
+    data: { knownAlready: current.vocabulary.knownAlready },
+  });
+}
+
 export function presentLesson(lesson: NonNullable<Awaited<ReturnType<typeof findLessonByDate>>>, revealAll = false) {
   const progress = JSON.parse(lesson.progress);
   return {
@@ -290,13 +396,10 @@ export function presentLesson(lesson: NonNullable<Awaited<ReturnType<typeof find
     newWordCount: lesson.newWordCount,
     estimatedMinutes: lesson.estimatedMinutes,
     source: lesson.source,
-    sourceLabel:
-      lesson.source === "ai"
-        ? "AI 生成，已保存在本机。配置密钥之后不会把这节课改标成新的调用。"
-        : lesson.source === "demo"
-          ? "离线示范课程。生成时没有调用在线 AI。"
-          : "离线词库。生成时没有调用在线 AI。",
+    sourceLabel: sourceText(lesson.source),
     model: lesson.model,
+    version: lesson.version,
+    active: lesson.active,
     createdAt: lesson.createdAt,
     poolNote: lesson.poolNote,
     progress,
@@ -416,6 +519,7 @@ export async function rateWord(vocabularyId: string, rating: RatingName, recallA
       changedSchedule: true,
     },
   });
+  await mirrorLemma(vocabularyId);
   return {
     due: next.due,
     familiarity,
@@ -505,7 +609,10 @@ export async function dashboard(now = new Date()) {
   const week = [];
   for (let offset = 6; offset >= 0; offset -= 1) {
     const date = addDays(today, -offset);
-    const dayLesson = await prisma.dailyLesson.findUnique({ where: { lessonDate: date } });
+    const dayLesson = await prisma.dailyLesson.findFirst({
+      where: { lessonDate: date, active: true },
+      orderBy: { version: "desc" },
+    });
     const start = new Date(`${date}T00:00:00`);
     const end = new Date(`${date}T23:59:59`);
     const sessions = await prisma.studySession.findMany({ where: { createdAt: { gte: start, lte: end } } });
@@ -529,19 +636,16 @@ export async function dashboard(now = new Date()) {
     week,
     recommendation,
     resumeStep: lesson ? JSON.parse(lesson.progress).step : null,
-    reviewedToday: await prisma.wordProgress.count({
-      where: { lastReview: { gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()) } },
-    }),
+    reviewedToday: (await canonicalProgress()).filter((row) => row.lastReview && row.lastReview >= new Date(now.getFullYear(), now.getMonth(), now.getDate())).length,
     upcoming: await upcomingReviews(now),
   };
 }
 
 async function upcomingReviews(now: Date) {
-  const rows = await prisma.wordProgress.findMany({
-    include: { vocabulary: true },
-    orderBy: { due: "asc" },
-    take: 5,
-  });
+  const rows = (await canonicalProgress())
+    .filter((row) => row.reps > 0)
+    .sort((a, b) => a.due.getTime() - b.due.getTime())
+    .slice(0, 5);
   return rows.map((row) => ({
     id: row.vocabularyId,
     lemma: row.vocabulary.lemma,
@@ -609,21 +713,18 @@ export async function library() {
 }
 
 export async function reviewQueue(now = new Date(), filter = "due", query = "") {
-  const rows = await prisma.wordProgress.findMany({
-    include: { vocabulary: true },
-    orderBy: { due: "asc" },
-  });
+  const rows = await canonicalProgress();
   const soon = now.getTime() + 48 * 60 * 60 * 1000;
   const needle = query.trim().toLowerCase();
   return rows
     .filter((row) => {
       const word = row.vocabulary;
       if (needle && !word.lemma.toLowerCase().includes(needle) && !word.meaningZh.includes(query.trim())) return false;
-      if (filter === "due") return row.due <= now && !word.knownAlready;
+      if (filter === "due") return row.reps > 0 && row.due <= now && !word.knownAlready;
       if (filter === "soon") return row.due.getTime() > now.getTime() && row.due.getTime() <= soon;
       if (filter === "weak") return row.familiarity === "forgot" || row.familiarity === "hard" || row.lapses > 0;
       if (filter === "known") return word.knownAlready || row.familiarity === "easy";
-      return true;
+      return row.reps > 0 || word.knownAlready;
     })
     .map((row) => ({
       id: row.vocabulary.id,
@@ -668,7 +769,7 @@ export async function stats() {
 }
 
 export async function history() {
-  const lessons = await prisma.dailyLesson.findMany({ orderBy: { lessonDate: "desc" } });
+  const lessons = await prisma.dailyLesson.findMany({ orderBy: [{ lessonDate: "desc" }, { version: "desc" }] });
   return lessons.map((lesson) => ({
     id: lesson.id,
     lessonDate: lesson.lessonDate,
@@ -677,14 +778,133 @@ export async function history() {
     difficulty: lesson.difficulty,
     newWordCount: lesson.newWordCount,
     model: lesson.model,
+    version: lesson.version,
+    active: lesson.active,
     source: lesson.source,
-    sourceLabel:
-      lesson.source === "ai"
-        ? "AI 生成，已缓存"
-        : lesson.source === "demo"
-          ? "离线示范课程"
-          : "离线词库",
+    sourceLabel: sourceText(lesson.source),
   }));
+}
+
+function sourceText(source: string) {
+  if (source === "ai") return "AI 生成";
+  if (source === "demo") return "示范课";
+  return "离线词库";
+}
+
+export async function lessonVersions(lessonDate: string) {
+  const lessons = await prisma.dailyLesson.findMany({ where: { lessonDate }, orderBy: { version: "asc" } });
+  return lessons.map((lesson) => ({
+    id: lesson.id,
+    version: lesson.version,
+    active: lesson.active,
+    source: lesson.source,
+    model: lesson.model,
+    createdAt: lesson.createdAt,
+    sourceLabel: sourceText(lesson.source),
+  }));
+}
+
+export async function activateLesson(id: string) {
+  const lesson = await prisma.dailyLesson.findUnique({ where: { id } });
+  if (!lesson) throw new AppError(404, "NOT_FOUND", "找不到这个课程版本");
+  await prisma.$transaction([
+    prisma.dailyLesson.updateMany({ where: { lessonDate: lesson.lessonDate }, data: { active: false } }),
+    prisma.dailyLesson.update({ where: { id }, data: { active: true } }),
+  ]);
+  const active = await findLessonByDate(lesson.lessonDate);
+  if (!active) throw new AppError(404, "NOT_FOUND", "找不到这个课程版本");
+  return presentLesson(active);
+}
+
+export async function createAiVersion(lessonDate: string) {
+  if (!process.env.LLM_API_KEY?.trim()) {
+    throw new AppError(400, "NO_LLM_KEY", "还没有配置 LLM_API_KEY，不能把课程标成 AI 生成。");
+  }
+  const settings = await getSettings();
+  const theme = settings.theme === "Custom" && settings.customTheme.trim() ? settings.customTheme.trim() : settings.theme;
+  const learned = await prisma.vocabulary.findMany({ select: { lemma: true } });
+  const avoid = learned.map((item) => item.lemma.toLowerCase());
+  const prior = await prisma.dailyLesson.findMany({
+    where: { lessonDate: { lt: lessonDate } },
+    distinct: ["lessonDate"],
+    select: { lessonDate: true },
+  });
+  const latest = await prisma.dailyLesson.findFirst({ where: { lessonDate }, orderBy: { version: "desc" } });
+  const draft = await generateAiDraft({
+    count: settings.dailyNewWords,
+    difficulty: settings.difficulty,
+    theme,
+    avoid,
+    priorLessons: prior.length,
+    listeningLevel: settings.listeningLevel,
+    wordParts: settings.wordPartsEnabled,
+    dueCount: await dueCount(),
+  });
+  if (draft.source !== "ai") throw new AppError(502, "AI_INVALID", "生成结果不是 AI 课程，已保留原课程。");
+  const progress = {
+    step: "review",
+    completed: [] as string[],
+    wordIndex: 0,
+    listening: { round: 1, firstGist: "", thirdGist: "", recall: "", recallNote: "", recallMode: "" },
+    shadow: { index: 0, marks: draft.listeningChunks.map(() => null) },
+  };
+  const memory = await loadMemory();
+  const created = await prisma.$transaction(async (tx) => {
+    await tx.dailyLesson.updateMany({ where: { lessonDate }, data: { active: false } });
+    return tx.dailyLesson.create({
+      data: {
+        lessonDate,
+        version: (latest?.version ?? 0) + 1,
+        active: true,
+        theme: settings.theme === "Custom" ? theme : settings.theme,
+        difficulty: settings.difficulty,
+        newWordCount: draft.words.length,
+        estimatedMinutes: draft.estimatedMinutes,
+        source: "ai",
+        model: process.env.LLM_MODEL || null,
+        poolNote: draft.poolNote,
+        progress: JSON.stringify(progress),
+        listeningTitle: draft.listeningTitle,
+        listeningText: draft.listeningText,
+        listeningChunks: JSON.stringify(draft.listeningChunks),
+        listeningGloss: JSON.stringify(draft.listeningGloss),
+        words: {
+          create: draft.words.map((word) => ({
+            lemma: word.lemma,
+            pos: word.pos,
+            ipa: word.ipa,
+            ipaNote: word.ipaNote,
+            stress: word.stress,
+            meaningZh: zhCN(word.meaningZh),
+            definitionEn: word.definitionEn,
+            collocation: word.collocation,
+            example: word.example,
+            exampleZh: zhCN(word.exampleZh),
+            morphology: word.morphology ? JSON.stringify(word.morphology) : null,
+            difficulty: word.difficulty,
+            theme: word.theme,
+            progress: { create: rememberedCard(memory, word.lemma) },
+          })),
+        },
+        questions: {
+          create: draft.questions.map((question, index) => ({
+            sortOrder: index,
+            kind: question.kind,
+            prompt: question.prompt,
+            options: JSON.stringify(question.options),
+            answerIndex: question.answerIndex,
+            explanationEn: question.explanationEn,
+            explanationZh: question.explanationZh,
+            simplerZh: question.simplerZh,
+            evidence: question.evidence,
+            whyWrong: JSON.stringify(question.whyWrong),
+          })),
+        },
+      },
+      include: lessonInclude,
+    });
+  });
+  return presentLesson(created);
 }
 
 export async function addSession(lessonId: string | null, module: string, minutes: number) {

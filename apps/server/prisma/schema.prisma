@@ -27,7 +27,9 @@ model UserSettings {
 
 model DailyLesson {
   id               String         @id @default(cuid())
-  lessonDate       String         @unique
+  lessonDate       String
+  version          Int            @default(1)
+  active           Boolean        @default(true)
   theme            String
   difficulty       String
   newWordCount     Int
@@ -44,6 +46,8 @@ model DailyLesson {
   words            Vocabulary[]
   questions        QuizQuestion[]
   sessions         StudySession[]
+
+  @@unique([lessonDate, version])
 }
 
 model Vocabulary {

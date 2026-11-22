@@ -3,7 +3,7 @@ import { api } from "../api";
 
 const status = ref("空闲");
 const detail = ref("");
-const sourceLabel = ref("尚未播放");
+const sourceLabel = ref("当前语音：尚未播放");
 let audio: HTMLAudioElement | null = null;
 
 export function useSpeech() {
@@ -15,7 +15,7 @@ export function useSpeech() {
       method: "POST",
       body: JSON.stringify({ text, rate, useOnline }),
     });
-    sourceLabel.value = result.sourceLabel || (result.mode === "file" ? "在线 AI 语音" : "浏览器语音");
+    sourceLabel.value = result.sourceLabel || (result.mode === "file" ? "当前语音：在线 AI 语音" : "当前语音：浏览器语音");
     if (result.warning) detail.value = result.warning;
     if (result.mode === "file" && result.url) {
       audio = new Audio(result.url);
