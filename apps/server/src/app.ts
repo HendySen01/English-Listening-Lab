@@ -1,7 +1,7 @@
 import { fromNodeHeaders, toNodeHandler } from "better-auth/node";
 import cors from "cors";
 import express from "express";
-import { clientIpHeader, getAuth } from "./auth.js";
+import { clientIpHeader, getAuth, learnerProvisioningEnabled, publicSignupEnabled } from "./auth.js";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -68,6 +68,14 @@ export function createApp() {
 
   app.use(cors({ origin: [/^http:\/\/127\.0\.0\.1:\d+$/, /^http:\/\/localhost:\d+$/], credentials: true }));
   app.use(express.json({ limit: "1mb" }));
+
+  app.get("/api/signup-status", (_req, res) => {
+    res.json({
+      enabled: publicSignupEnabled(),
+      emailDelivery: "unconfigured",
+      learnerProvisioning: learnerProvisioningEnabled(),
+    });
+  });
 
   app.get("/api/auth-session-check", async (req, res, next) => {
     try {

@@ -1,5 +1,6 @@
 // 隔离运行时的付费调用必须先经过替身。没有替身时直接拒绝，不访问模型。
 import { AppError } from "./errors.js";
+import { assertRealSpendAllowed } from "./learnerQuota.js";
 
 let mock: (() => void) | null = null;
 let calls = 0;
@@ -17,7 +18,10 @@ export function paidAiCalls() {
 }
 
 export function assertPaidAiMock() {
-  if (!mock) throw new AppError(403, "PAID_AI_DISABLED", "隔离运行时拒绝调用付费模型。");
+  if (!mock) {
+    assertRealSpendAllowed();
+    throw new AppError(403, "PAID_AI_DISABLED", "没有已授权的模型调用路径，这次没有发送请求。");
+  }
   calls += 1;
   mock();
 }

@@ -1,5 +1,5 @@
-// 隔离运行时的付费次数预留。金额只有在价格和硬预算都已配置时才预留。
-// 未配置预算时不能把次数限制说成费用保护，真实模型调用保持拒绝。
+// 次数、Token、并发和幂等始终生效。金额预算只在价格和硬预算都已配置时额外生效。
+// 未配置金额预算不会单独拒绝请求。真实模型仍要单独授权，替身测试不能打到 DeepSeek。
 import { AppError } from "./errors.js";
 import type { VerifiedLearner } from "./learnerIdentity.js";
 import { learnerTransactionOptions, lockLearnerScope } from "./learnerLock.js";
@@ -60,8 +60,8 @@ function budgetConfig() {
 }
 
 export function assertRealSpendAllowed() {
-  if (!budgetConfig()) {
-    throw new AppError(403, "AI_BUDGET_REQUIRED", "还没有确认费用预算，已拒绝真实付费请求。");
+  if (process.env.AI_REAL_CALLS !== "1") {
+    throw new AppError(403, "PAID_AI_DISABLED", "真实模型调用尚未单独授权，这次没有发送请求。");
   }
 }
 
@@ -145,13 +145,17 @@ export async function ownQuota(learner: VerifiedLearner, now = studyNow()) {
 }
 
 export async function withAiCharge<T>(
-  input: { learner: VerifiedLearner; requestId: unknown; kind: AiKind; model?: string; now?: Date; inputTokens?: number },
+  input: { learner: VerifiedLearner; requestId: unknown; kind: AiKind; model?: string; now?: Date; inputTokens?: number; outputTokens?: number },
   work: () => Promise<T>,
 ): Promise<{ replayed: boolean; value: T }> {
   if (process.env.AI_QUOTA_PAUSED === "1") throw new AppError(503, "AI_PAUSED", "AI 请求已暂停，这次没有调用模型。");
   const maxInput = requiredInt("AI_MAX_INPUT_TOKENS", 8000);
-  if (input.inputTokens != null && (!Number.isInteger(input.inputTokens) || input.inputTokens > maxInput)) {
+  const maxOutput = requiredInt("AI_MAX_OUTPUT_TOKENS", 2000);
+  if (input.inputTokens != null && (!Number.isInteger(input.inputTokens) || input.inputTokens < 0 || input.inputTokens > maxInput)) {
     throw new AppError(400, "AI_TOKEN_LIMIT", "这次请求超过输入 Token 上限，没有调用模型。");
+  }
+  if (input.outputTokens != null && (!Number.isInteger(input.outputTokens) || input.outputTokens < 0 || input.outputTokens > maxOutput)) {
+    throw new AppError(400, "AI_TOKEN_LIMIT", "这次请求超过输出 Token 上限，没有调用模型。");
   }
   const requestId = normalizeRequestId(input.requestId);
   const now = input.now ?? studyNow();

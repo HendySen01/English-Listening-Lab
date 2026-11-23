@@ -37,6 +37,14 @@ export async function resolveLearnerFromSession(session: { user?: { id?: string 
   return { ok: true, learner: { learnerId: learner.id, authUserId, boundAt: learner.boundAt } };
 }
 
+export async function readSessionUserId(headers: Headers | IncomingHttpHeaders) {
+  const auth = getAuth();
+  if (!auth) return "";
+  const normalized = headers instanceof Headers ? headers : fromNodeHeaders(headers);
+  const session = await auth.api.getSession({ headers: normalized });
+  return session?.user?.id?.trim() || "";
+}
+
 export async function resolveLearnerFromHeaders(headers: Headers | IncomingHttpHeaders) {
   const auth = getAuth();
   if (!auth) {

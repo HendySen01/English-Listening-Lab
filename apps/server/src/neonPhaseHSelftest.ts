@@ -258,13 +258,13 @@ const siteRace = await Promise.all([
   reserve("learner_phase_b", "phase-site-b-1844", 200, siteNow, 1).then(() => "ok", codeOf),
 ]);
 check("[PostgreSQL][额度] 全站最后一次并发只有一个成功", siteRace.filter((item) => item === "ok").length === 1 && siteRace.includes("SITE_QUOTA"), siteRace.join(","));
-let budgetDenied = false;
+let realDenied = false;
 try {
   assertRealSpendAllowed();
 } catch (error) {
-  budgetDenied = codeOf(error) === "AI_BUDGET_REQUIRED";
+  realDenied = codeOf(error) === "PAID_AI_DISABLED";
 }
-check("[PostgreSQL][额度] 未确认费用预算时拒绝真实模型请求", budgetDenied);
+check("[PostgreSQL][额度] 未单独授权时拒绝真实模型请求", realDenied);
 
 setStudyClock(new Date("2026-11-23T15:59:59.999Z"));
 const quotaA = await reserve("learner_phase_a", "phase-quota-1844", 1, new Date("2026-11-23T15:59:59.999Z"));

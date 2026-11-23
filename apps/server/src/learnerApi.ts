@@ -447,7 +447,7 @@ function sumBy<T>(rows: T[], dateOf: (row: T) => string, valueOf: (row: T) => nu
   return [...totals.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([date, total]) => ({ date, total }));
 }
 
-const settingDefaults = {
+export const settingDefaults = {
   dailyNewWords: 6,
   difficulty: "A2+",
   listeningLevel: "match",

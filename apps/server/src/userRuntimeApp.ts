@@ -2,10 +2,11 @@
 import { toNodeHandler } from "better-auth/node";
 import cors from "cors";
 import express from "express";
-import { clientIpHeader, getAuth } from "./auth.js";
+import { clientIpHeader, getAuth, learnerProvisioningEnabled, publicSignupEnabled } from "./auth.js";
 import { previewTrustedOrigins } from "./previewBoot.js";
 import { AppError } from "./errors.js";
-import { resolveRequestLearner } from "./learnerIdentity.js";
+import { readSessionUserId, resolveRequestLearner } from "./learnerIdentity.js";
+import { provisionOwnLearner } from "./learnerProvision.js";
 import {
   getAttempt,
   getLesson,
@@ -83,6 +84,25 @@ export function createUserRuntimeApp(options: { platform?: "local" | "vercel" } 
 
   app.get("/api/user-runtime/health", (_req, res) => {
     res.json({ ok: true });
+  });
+
+  app.get("/api/signup-status", (_req, res) => {
+    res.json({
+      enabled: publicSignupEnabled(),
+      emailDelivery: "unconfigured",
+      learnerProvisioning: learnerProvisioningEnabled(),
+    });
+  });
+
+  app.post("/api/learner/provision", async (req, res, next) => {
+    try {
+      const authUserId = await readSessionUserId(req.headers);
+      if (!authUserId) throw new AppError(401, "UNAUTHENTICATED", "未登录");
+      const learner = await provisionOwnLearner(authUserId);
+      res.json({ learnerId: learner.id });
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.get("/api/user-runtime/learner", async (req, res, next) => {

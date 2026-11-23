@@ -55,7 +55,7 @@ const router = useRouter();
 const store = useAppStore();
 const sessionEmail = ref("");
 const settled = ref(false);
-const standalone = computed(() => route.path.startsWith("/preview") || route.path === "/auth-lab" || route.path === "/login");
+const standalone = computed(() => route.path.startsWith("/preview") || route.path === "/auth-lab" || route.path === "/login" || route.path === "/register");
 const titles: Record<string, string> = {
   "/": "今天",
   "/lesson": "我的课程",
@@ -86,7 +86,7 @@ async function refreshSession() {
     sessionEmail.value = session.data?.user.email || "";
   } catch {
     sessionEmail.value = "";
-    if (await multiUserRuntime() && route.path !== "/login") await router.replace("/login");
+    if (await multiUserRuntime() && route.path !== "/login" && route.path !== "/register") await router.replace("/login");
   }
 }
 
@@ -97,6 +97,7 @@ async function signOut() {
 }
 
 onMounted(async () => {
+  applyTheme(localStorage.getItem("ell-color-mode") || "system");
   watchSystemTheme();
   await router.isReady();
   await refreshSession();

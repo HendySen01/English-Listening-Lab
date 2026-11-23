@@ -17,6 +17,7 @@ import PreviewWordsCard from "./preview/PreviewWordsCard.vue";
 import PreviewListeningCard from "./preview/PreviewListeningCard.vue";
 import AuthLab from "./views/AuthLab.vue";
 import Login from "./views/Login.vue";
+import Register from "./views/Register.vue";
 import { authClient } from "./lib/authClient";
 import { multiUserRuntime, protectedRuntimeRequested } from "./lib/runtimeMode";
 
@@ -33,6 +34,7 @@ export const router = createRouter({
     { path: "/settings", component: Settings },
     { path: "/auth-lab", component: AuthLab },
     { path: "/login", component: Login },
+    { path: "/register", component: Register },
     { path: "/history", component: History },
     {
       path: "/preview",
@@ -56,11 +58,11 @@ router.beforeEach(async (to) => {
   try {
     const session = await authClient.getSession();
     const signedIn = Boolean(session.data?.user);
-    if (to.path === "/login") return signedIn ? "/" : true;
+    if (to.path === "/login" || to.path === "/register") return signedIn ? "/" : true;
     if (!signedIn) return "/login";
     return true;
   } catch {
-    if (to.path === "/login") return true;
+    if (to.path === "/login" || to.path === "/register") return true;
     return "/login";
   }
 });

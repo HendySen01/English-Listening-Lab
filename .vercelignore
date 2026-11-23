@@ -2,6 +2,7 @@
 .env.*
 **/.env
 **/.env.*
+apps/server/.env.neon.production
 data/
 *.db
 *.db-journal

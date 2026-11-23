@@ -11,7 +11,7 @@
     "user-runtime": "tsx src/userRuntime.ts",
     "postinstall": "prisma generate && prisma generate --schema prisma-auth/schema.prisma && node scripts/user/generate.mjs && node scripts/neon-dev/generate-if-vercel.mjs",
     "test:vercel-preview": "tsx src/vercelPreviewSelftest.ts",
-    "test": "tsx src/selftest.ts && tsx src/authSelftest.ts && tsx src/userDrillSelftest.ts && tsx src/userRuntimeSelftest.ts && tsx src/userApiSelftest.ts && tsx src/userReviewSelftest.ts && tsx src/userStudyTimeSelftest.ts && tsx src/userQuotaSelftest.ts && tsx src/previewBootSelftest.ts",
+    "test": "tsx src/selftest.ts && tsx src/authSelftest.ts && tsx src/userDrillSelftest.ts && tsx src/userRuntimeSelftest.ts && tsx src/userApiSelftest.ts && tsx src/userReviewSelftest.ts && tsx src/userStudyTimeSelftest.ts && tsx src/userQuotaSelftest.ts && tsx src/registrationSelftest.ts && tsx src/previewBootSelftest.ts",
     "test:neon-phase-h": "tsx src/neonPhaseHSelftest.ts",
     "test:postgres-runtime": "tsx src/postgresRuntimeSelftest.ts",
     "postgres-runtime": "tsx src/postgresRuntime.ts"

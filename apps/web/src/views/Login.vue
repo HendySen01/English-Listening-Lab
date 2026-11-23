@@ -8,7 +8,7 @@
     <section class="login-panel">
       <form @submit.prevent="signIn">
         <h2>登录</h2>
-        <p class="login-help">公开注册未开放。登录后只访问当前账号的学习数据。</p>
+        <p class="login-help">登录后只访问当前账号的学习数据。</p>
         <label>
           邮箱
           <input v-model="email" type="email" name="email" autocomplete="username" required :disabled="busy">
@@ -22,6 +22,7 @@
         </label>
         <p class="login-error" role="alert">{{ message }}</p>
         <button class="login-submit" type="submit" :disabled="busy" :aria-busy="busy">{{ busy ? "正在登录" : "登录" }}</button>
+        <p class="login-switch">没有账号？<router-link to="/register">注册</router-link></p>
       </form>
     </section>
   </main>
@@ -39,6 +40,23 @@ const message = ref("");
 const busy = ref(false);
 const passwordVisible = ref(false);
 
+async function prepareLearner() {
+  const status = await fetch("/api/signup-status", { credentials: "include" });
+  if (!status.ok) return true;
+  const body = await status.json() as { learnerProvisioning?: boolean };
+  if (!body.learnerProvisioning) return true;
+  const ready = await fetch("/api/learner/provision", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  if (ready.ok) return true;
+  const payload = await ready.json().catch(() => ({})) as { error?: string };
+  message.value = payload.error || "学习空间还没有准备好。请稍后再试。";
+  return false;
+}
+
 async function signIn() {
   if (busy.value) return;
   busy.value = true;
@@ -47,9 +65,10 @@ async function signIn() {
     const result = await authClient.signIn.email({ email: email.value, password: password.value });
     if (result.error) {
       const status = "status" in result.error ? Number(result.error.status) : 0;
-      message.value = status === 401 ? "邮箱或密码不正确。" : "登录没有完成，请稍后再试。";
+      message.value = status === 429 ? "尝试次数太多，请稍后再试。" : status === 401 ? "邮箱或密码不正确。" : "登录没有完成，请稍后再试。";
       return;
     }
+    if (!(await prepareLearner())) return;
     await router.push("/");
   } catch {
     message.value = "网络异常，这次登录没有发出。";
@@ -152,6 +171,9 @@ input:focus { outline: 2px solid var(--focus); outline-offset: 2px; border-color
 .login-submit:active:not(:disabled) { transform: translateY(1px); }
 .login-submit:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 .login-submit:disabled { cursor: not-allowed; opacity: 0.72; }
+.login-switch { margin: 16px 0 0; color: var(--muted); font-size: 14px; text-align: center; }
+.login-switch a { color: var(--accent-text); font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
+.login-switch a:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 @media (max-width: 800px) {
   .login-page { grid-template-columns: 1fr; }
   .login-brand { min-height: 0; padding: 36px 24px 28px; }

@@ -43,7 +43,7 @@ const { createUserRuntimeApp } = await import("./userRuntimeApp.ts");
 const { disconnectUserPrisma, getUserPrisma } = await import("./userDatabase.ts");
 const { assertPaidAiMock, paidAiCalls, resetPaidAiCalls, setPaidAiMock } = await import("./learnerAiGuard.ts");
 const { assertRealSpendAllowed, ownQuota, setQuotaFault, withAiCharge } = await import("./learnerQuota.ts");
-const { explainOwnedPassage, recallOwnLesson } = await import("./learnerApi.ts");
+const { createOwnAiVersion, easierOwnExample, explainOwnedPassage, ownLibrary, recallOwnLesson } = await import("./learnerApi.ts");
 const { setStudyClock, studyDate, studyDayBounds } = await import("./studyTime.ts");
 
 const failures: string[] = [];
@@ -59,9 +59,9 @@ let realDenied = false;
 try {
   assertRealSpendAllowed();
 } catch (error) {
-  realDenied = codeOf(error) === "AI_BUDGET_REQUIRED";
+  realDenied = codeOf(error) === "PAID_AI_DISABLED";
 }
-check("[费用] 未确认预算时拒绝真实付费", realDenied && paidAiCalls() === 0);
+check("[费用] 未单独授权时拒绝真实模型", realDenied && paidAiCalls() === 0);
 
 function removeDatabase(file: string) {
   for (const suffix of ["", "-wal", "-shm"]) if (fs.existsSync(`${file}${suffix}`)) fs.rmSync(`${file}${suffix}`);
@@ -117,6 +117,19 @@ async function spend(learner: typeof learnerA, requestId: string) {
   });
 }
 const held = () => user.aiCharge.count({ where: { status: { in: ["pending", "succeeded", "unknown"] } } });
+
+const opening = await ownQuota(learnerA);
+check("[额度] 默认是每人 200、全站 1500", opening.userLimit === 200 && opening.siteLimit === 1500 && opening.userUsed === 0 && opening.costBudget === "unconfigured");
+process.env.AI_REAL_CALLS = "1";
+let optionalBudget = false;
+try {
+  assertRealSpendAllowed();
+  optionalBudget = true;
+} catch {
+  optionalBudget = false;
+}
+delete process.env.AI_REAL_CALLS;
+check("[费用] 未配置金额预算时不因此拒绝已授权请求", optionalBudget && paidAiCalls() === 0);
 
 const first = await spend(learnerA, "quota-repeat-1844");
 const second = await spend(learnerA, "quota-repeat-1844");
@@ -199,6 +212,20 @@ try {
 setQuotaFault(null);
 check("[事务] 预留失败不会扣减也不会调用模型", faultCode === "AI_QUOTA_UNAVAILABLE" && await user.aiCharge.count({ where: { requestId: "quota-fault-184400" } }) === 0);
 
+process.env.AI_MAX_OUTPUT_TOKENS = "50";
+const callsBeforeOutput = paidAiCalls();
+let outputCode = "";
+try {
+  await withAiCharge({ learner: learnerA, requestId: "quota-output-1844", kind: "probe", outputTokens: 51 }, async () => {
+    assertPaidAiMock();
+    return { ok: true };
+  });
+} catch (error) {
+  outputCode = codeOf(error);
+}
+delete process.env.AI_MAX_OUTPUT_TOKENS;
+check("[限额] 超过输出 Token 上限不会预留", outputCode === "AI_TOKEN_LIMIT" && await user.aiCharge.count({ where: { requestId: "quota-output-1844" } }) === 0 && paidAiCalls() === callsBeforeOutput);
+
 process.env.AI_MAX_INPUT_TOKENS = "100";
 process.env.AI_MAX_OUTPUT_TOKENS = "50";
 process.env.AI_PRICE_VERSION = "test-unconfirmed";
@@ -267,10 +294,47 @@ await running;
 process.env.AI_MAX_CONCURRENT = "4";
 check("[并发] 达到并发上限时拒绝新的模型调用", sawPending && concurrentCode === "AI_CONCURRENCY" && paidAiCalls() === 1);
 
+const createdAtWords = new Date("2026-05-02T00:00:00.000Z");
+for (let index = 0; index < 30; index += 1) {
+  await user.vocabulary.create({
+    data: {
+      id: `ipa_quota_${index}`,
+      userId: learnerA.learnerId,
+      lemma: `ipa${index}`,
+      pos: "noun",
+      ipa: "/ˈaɪpiːeɪ/",
+      ipaNote: "",
+      meaningZh: "音标",
+      definitionEn: "ipa",
+      collocation: "",
+      example: "The word stays in the lesson.",
+      exampleZh: "已有例句",
+      difficulty: "A2",
+      theme: "Daily Life",
+      knownAlready: false,
+      exampleFlagged: false,
+      createdAt: createdAtWords,
+    },
+  });
+}
+const chargesBeforeRead = await user.aiCharge.count();
+const callsBeforeRead = paidAiCalls();
+const library = await ownLibrary(learnerA);
+check("[免费] 查看音标和已有词义不扣次数", library.length === 30 && library.every((word) => word.ipa === "/ˈaɪpiːeɪ/") && await user.aiCharge.count() === chargesBeforeRead && paidAiCalls() === callsBeforeRead);
+const lesson = await createOwnAiVersion(learnerA, "quota-lesson-once-1844");
+const example = await easierOwnExample(learnerA, "ipa_quota_0", "quota-example-once-1844");
+const exampleReplay = await easierOwnExample(learnerA, "ipa_quota_0", "quota-example-once-1844");
+check(
+  "[计次] 课程和例句按模型请求各记一次",
+  lesson.id.startsWith("lesson_") && example.source === "mock" && exampleReplay.source === "mock"
+    && await user.aiCharge.count({ where: { userId: learnerA.learnerId, requestId: "quota-lesson-once-1844" } }) === 1
+    && await user.aiCharge.count({ where: { userId: learnerA.learnerId, requestId: "quota-example-once-1844" } }) === 1
+    && paidAiCalls() === callsBeforeRead + 2,
+);
 const recalled = await recallOwnLesson(learnerA, "lesson_quota_a", "heard the old sentence");
 const cached = await explainOwnedPassage(learnerA, "museum", "museum", "After hours of driving, we finally found a quiet parking space behind the museum.", "quota-cache-1844");
 const quotaBeforeOffline = await user.aiCharge.count();
-check("[免费] 本地回忆和缓存命中不扣次数", recalled.accepted === true && cached.charged === false && cached.source === "cache" && await user.aiCharge.count() === quotaBeforeOffline && paidAiCalls() === 1);
+check("[免费] 本地回忆和缓存命中不扣次数", recalled.accepted === true && cached.charged === false && cached.source === "cache" && await user.aiCharge.count() === quotaBeforeOffline && paidAiCalls() === callsBeforeRead + 2);
 process.env.AI_QUOTA_PAUSED = "1";
 let pausedCode = "";
 try {
@@ -279,7 +343,7 @@ try {
   pausedCode = codeOf(error);
 }
 delete process.env.AI_QUOTA_PAUSED;
-check("[暂停] 暂停后不会预留或调用模型", pausedCode === "AI_PAUSED" && await user.aiCharge.count({ where: { requestId: "quota-paused-1844" } }) === 0 && paidAiCalls() === 1);
+check("[暂停] 暂停后不会预留或调用模型", pausedCode === "AI_PAUSED" && await user.aiCharge.count({ where: { requestId: "quota-paused-1844" } }) === 0 && paidAiCalls() === callsBeforeRead + 2);
 
 const runtime = createUserRuntimeApp();
 const server = await new Promise<import("node:http").Server>((resolve) => {

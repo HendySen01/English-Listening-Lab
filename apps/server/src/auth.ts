@@ -1,5 +1,6 @@
-import { betterAuth } from "better-auth";
+import { APIError, betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
+import { provisionOwnLearner } from "./learnerProvision.js";
 import { previewAuthBase, previewTrustedOrigins } from "./previewBoot.js";
 import { authDb, postgresRuntimeRequested } from "./runtimeClients.js";
 import { redactSecrets } from "./serverLog.js";
@@ -11,6 +12,36 @@ export function authSecret() {
   const secret = process.env.BETTER_AUTH_SECRET?.trim() || "";
   if (secret.length < 32) return "";
   return secret;
+}
+
+// 邮件发送还没有配置。注册不把邮箱标成已验证，也不假装发过验证信。
+export function publicSignupEnabled(env: NodeJS.ProcessEnv = process.env) {
+  if (env.VERCEL_ENV === "production") return false;
+  return env.AUTH_SIGNUP_ENABLED === "1";
+}
+
+export function learnerProvisioningEnabled(env: NodeJS.ProcessEnv = process.env) {
+  return env.USER_RUNTIME === "1" || env.POSTGRES_RUNTIME === "1";
+}
+
+export function passwordIssue(password: string, email = "") {
+  if (!password) return "请填写密码。";
+  if (password.length < 8 || password.length > 128) return "密码需要 8 到 128 位。";
+  if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) return "密码需要同时包含字母和数字。";
+  if (email && password.toLowerCase() === email.toLowerCase()) return "密码不能与邮箱相同。";
+  return "";
+}
+
+function signupRequest(context: unknown) {
+  if (!context || typeof context !== "object") return null;
+  const record = context as { path?: unknown; request?: { url?: unknown }; body?: { email?: unknown; password?: unknown } };
+  const path = typeof record.path === "string" ? record.path : "";
+  const url = typeof record.request?.url === "string" ? record.request.url : "";
+  if (!`${path} ${url}`.includes("sign-up")) return null;
+  return {
+    email: typeof record.body?.email === "string" ? record.body.email : "",
+    password: typeof record.body?.password === "string" ? record.body.password : "",
+  };
 }
 
 export function secureAuthCookies() {
@@ -57,7 +88,7 @@ let authKey = "";
 export function getAuth() {
   const secret = authSecret();
   if (!secret) return null;
-  const key = `${secret}\n${process.env.BETTER_AUTH_URL || ""}\n${process.env.AUTH_DATABASE_URL || ""}\n${process.env.AUTH_SELFTEST || ""}\n${process.env.POSTGRES_RUNTIME || ""}`;
+  const key = `${secret}\n${process.env.BETTER_AUTH_URL || ""}\n${process.env.AUTH_DATABASE_URL || ""}\n${process.env.AUTH_SELFTEST || ""}\n${process.env.POSTGRES_RUNTIME || ""}\n${publicSignupEnabled() ? "signup" : "no-signup"}\n${process.env.VERCEL_ENV || ""}`;
   if (auth && authKey === key) return auth;
   authKey = key;
   auth = betterAuth({
@@ -69,9 +100,34 @@ export function getAuth() {
     database: prismaAdapter(authDb(), { provider: postgresRuntimeRequested() ? "postgresql" : "sqlite" }),
     emailAndPassword: {
       enabled: true,
-      disableSignUp: true,
+      disableSignUp: !publicSignupEnabled(),
+      requireEmailVerification: false,
       minPasswordLength: 8,
       maxPasswordLength: 128,
+      autoSignIn: true,
+    },
+    databaseHooks: {
+      user: {
+        create: {
+          async before(user, context) {
+            const signup = signupRequest(context);
+            if (!signup) return;
+            const issue = passwordIssue(signup.password, signup.email || String(user.email || ""));
+            if (issue) throw new APIError("BAD_REQUEST", { message: issue, code: "WEAK_PASSWORD" });
+          },
+          async after(user, context) {
+            if (!signupRequest(context)) return;
+            try {
+              await provisionOwnLearner(user.id);
+            } catch {
+              throw new APIError("SERVICE_UNAVAILABLE", {
+                message: "账号已创建，学习空间还没有准备好。请登录后再试。",
+                code: "LEARNER_PROVISION_FAILED",
+              });
+            }
+          },
+        },
+      },
     },
     session: {
       expiresIn: sessionSeconds,
@@ -85,6 +141,7 @@ export function getAuth() {
       max: 100,
       customRules: {
         "/sign-in/email": { window: 15 * 60, max: 5 },
+        "/sign-up/email": { window: 15 * 60, max: 8 },
       },
     },
     advanced: {
