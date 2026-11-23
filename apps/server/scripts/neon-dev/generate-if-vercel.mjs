@@ -2,14 +2,26 @@ import { spawnSync } from "node:child_process";
 import { assertDevelopmentPair } from "./guard.mjs";
 
 if (process.env.VERCEL !== "1") process.exit(0);
-if (process.env.VERCEL_ENV === "production") {
-  console.error("Production 环境拒绝生成预览数据库客户端。");
-  process.exit(1);
-}
 
 const pooled = process.env.NEON_DATABASE_URL || "";
 const direct = process.env.NEON_DIRECT_URL || "";
-assertDevelopmentPair({ DATABASE_URL: pooled, DIRECT_URL: direct });
+if (process.env.VERCEL_ENV === "production") {
+  const productionEndpoint = "ep-weathered-dream-bew7iwf0";
+  const developmentEndpoint = "ep-holy-flower-be2hbbj4";
+  function endpointOf(raw) {
+    return new URL(raw).hostname.split(".")[0].replace(/-pooler$/, "");
+  }
+  if (endpointOf(pooled) !== productionEndpoint || endpointOf(direct) !== productionEndpoint) {
+    console.error("Production 拒绝未确认的数据库端点。");
+    process.exit(1);
+  }
+  if (endpointOf(pooled) === developmentEndpoint) {
+    console.error("Production 拒绝 development 连接。");
+    process.exit(1);
+  }
+} else {
+  assertDevelopmentPair({ DATABASE_URL: pooled, DIRECT_URL: direct });
+}
 
 function withSchema(raw, schema) {
   const url = new URL(raw);
