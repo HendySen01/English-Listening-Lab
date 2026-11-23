@@ -458,6 +458,70 @@
           }
         ]
       }
+    },
+    "context-reader-schema-4::cmws0yt1s0002oe9kvmfn6ojp:chunk:0::at": {
+      "passageId": "cmws0yt1s0002oe9kvmfn6ojp:chunk:0",
+      "word": "at",
+      "sentence": "Saturday morning is busy at my home.",
+      "source": "live",
+      "model": "deepseek-flash",
+      "createdAt": "2026-11-23T01:48:54.483Z",
+      "attempts": 1,
+      "analysis": {
+        "text": "at",
+        "type": "word",
+        "pronunciation": "/æt/",
+        "partOfSpeech": "介词",
+        "definition": "表示地点或场所，意为“在……（地方）”，此处指“在我家”这一场所范围内。",
+        "usage": "用于名词短语前构成地点状语，常与 home、school、work 等表示场所的名词搭配；at my home 强调“在我家这个地方”，比 in my home 更侧重地点点位的指称。",
+        "etymology": {
+          "origin": "源自古英语 æt，与古弗里斯语 et、古撒克逊语 at、古高地德语 az 同源，原始日耳曼语 *at，本义为“靠近、在……旁”。",
+          "originalImage": "一个人靠近某物或某地站着，处于其旁边或紧邻的位置。",
+          "prefix": "无",
+          "root": "古英语 æt",
+          "suffix": "无",
+          "certainty": "较确定"
+        },
+        "semanticRoutes": [
+          {
+            "label": "线路A：空间邻近",
+            "steps": "原始日耳曼语 *at（靠近）→ 古英语 æt（在……旁、在……处）→ 中古英语 at → 现代英语 at（在某个地点）",
+            "modernMeaning": "表示所在的地点或场所",
+            "domain": "日常"
+          },
+          {
+            "label": "线路B：时间点位",
+            "steps": "空间上的“靠近某点”→ 时间上的“在某一点”→ 现代英语 at 用于钟点、时刻（at six o'clock）",
+            "modernMeaning": "表示时间点",
+            "domain": "日常"
+          },
+          {
+            "label": "线路C：状态与方式",
+            "steps": "“处于某一点上”→ 引申为处于某种状态或方式（at war、at ease、at speed）",
+            "modernMeaning": "表示处于某种状态或方式",
+            "domain": "通用"
+          }
+        ],
+        "comparisons": [
+          {
+            "word": "in",
+            "partOfSpeech": "介词",
+            "difference": "in 强调在某一空间内部或范围内（in my home 侧重房屋内部空间），at 强调把地点视为一个点位（at my home 侧重“在我家这个地方”），口语中 at home 更常用。"
+          }
+        ],
+        "examples": [
+          {
+            "text": "Saturday morning is busy at my home.",
+            "translation": "星期六上午我家里很忙。",
+            "contextNote": "at my home 作地点状语，说明忙碌发生的地点，强调“在我家这个地方”。"
+          },
+          {
+            "text": "She is at the door waiting for you.",
+            "translation": "她在门口等你。",
+            "contextNote": "at the door 表示位于门口这一位置点，体现 at 指称地点点位的典型用法。"
+          }
+        ]
+      }
     }
   }
 }

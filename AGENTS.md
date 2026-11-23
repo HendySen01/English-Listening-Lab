@@ -16,14 +16,14 @@
 - 前端：Vue 3 + Vite，npm workspaces 的 `apps/web`。
 - 后端：Node.js + Express 5 + TypeScript，`apps/server`；本地 API 通常为 `127.0.0.1:8787`，前端通过相对路径 `/api` 和 Vite 代理访问。
 - ORM：Prisma **6.19.3**。未经任务授权不得擅自升级或照搬 Prisma 7 配置。
-- 本地运行数据库：SQLite，`data/lab.db`；常规 Schema 为 `apps/server/prisma/schema.prisma`，`provider = "sqlite"`。
-- Neon PostgreSQL：项目 **English Listening Lab**，数据库 `neondb`；`development` 分支已完成独立迁移演练；`production` 尚未迁移，也不得作为测试目标。
-- Neon 迁移专用文件：`apps/server/prisma-neon/schema.prisma`、`apps/server/prisma-neon/migrations/`、`apps/server/scripts/neon-dev/`。**它们不是当前本地 SQLite 服务的运行配置。**
-- 本地 `apps/server/.env` 继续用于 SQLite；Neon development 凭据放在被 Git 忽略的 `apps/server/.env.neon.development`。不存在的值不要臆造，绝不把连接串输出到报告。
-- AI 使用 DeepSeek；浏览器语音是默认可用路径。**在线 TTS 不能因为浏览器语音能播放就标成已验证。**
-- AI 深度解释现有结构是 `context-reader-schema-4`；本地曾使用 `data/preview-explanations.json`；Neon development 已有 `ExplanationCache`。**正式页面是否已切换云端缓存，必须以代码和实际测试为准。**
-- Neon development 演练曾核对 9 张原业务表、5 节课程、30 个词、30 条 WordProgress、11 条 ReviewEvent、8 条解释缓存。**这些是历史基线，不是永远不变的当前数量。**
-- 最终目标是 Vercel + Neon，但 **Vercel 生产部署尚未授权**。本地能运行 ≠ Vercel 已可安全上线。
+- 本地运行数据库：SQLite，`data/lab.db`；常规 Schema 为 `apps/server/prisma/schema.prisma`，`provider = "sqlite"`。**原始 SQLite 学习记录只作测试保留，不得迁入正式账号。**
+- 正式站：**Vercel Production**，网址 `https://english-listening-lab.vercel.app`。入口仍是 `apps/server/src/vercelPreview.ts`；`VERCEL_ENV=production` 时走 Production 启动保护。最近已知上线提交为 `9f636f4`，以当前 Git 为准。
+- Neon PostgreSQL：项目 **English Listening Lab**，数据库 `neondb`。Production 使用独立端点与隔离 schema `lab_phase_h`（业务）和 `lab_phase_h_auth`（认证）。development 仍是演练分支，schema 同名但端点不同。**禁止把 Preview / development 连接用于 Production，禁止连接 `public`。**
+- Neon 脚本：`apps/server/scripts/neon-dev/`、`apps/server/scripts/neon-prod/`。本地 SQLite `.env` 不得写入 Neon URL。凭据只放在被 Git 忽略的 `apps/server/.env.neon.development`、`apps/server/.env.neon.production`。邀请码文件 `apps/server/.invite.production` 同样忽略。**不得把邀请码、连接串、密钥写入文档、Git 或报告。**
+- 注册：Better Auth 邮箱密码。Production 须 `AUTH_SIGNUP_ENABLED=1` 且服务端校验邀请码；无邀请码不得创建用户。邮箱验证邮件未配置，注册不得把邮箱标成已验证。登录限流与注册限流分开。每个认证用户最多一个独立 Learner，不得绑定 `unbound:original-lab`。
+- AI：默认每人每天 200 次、全站每天 1500 次，按 `STUDY_TIMEZONE=Asia/Shanghai` 学习日重置。只计实际发给 DeepSeek 的模型请求。音标、浏览器朗读、缓存命中、离线课和普通 API 不扣次数。金额预算可选。完整课程生成目前仍是离线词，**不得写成已用 DeepSeek 生成整课。**
+- 浏览器语音是默认朗读路径。**在线 TTS 不能因为浏览器语音能播放就标成已验证。**
+- AI 深度解释结构是 `context-reader-schema-4`。正式页是否走云端 `ExplanationCache`，必须以代码和实测为准。
 
 ## 3. 执行行为：先核对、再行动、再验收
 
@@ -42,7 +42,7 @@
 
 - **保护源 SQLite**：不得删除、覆盖、重置 `data/lab.db`；数据库检查使用真正的只读方式；备份要考虑运行中的 WAL，并验证备份可读。
 - Neon **development 可用于被当轮授权的测试与迁移**；每次写入前核验 Pooled、Direct 均属于 `development / neondb`。仅凭变量名或地址带 `-pooler` 不足以证明目标分支安全；沿用已有 `neon-dev/guard.mjs` 及必要的独立核验。
-- Neon **production 默认不可连接、写入或迁移**。开发分支失败时不得回退到 production。不得擅自 `db push`、`migrate reset`、`DROP SCHEMA`、`TRUNCATE` 或重新完整导入。
+- Neon **production 已上线**。后续写入、再建表、改约束或迁移仍须当轮明确授权。开发分支失败时不得拿 production 当回退目标。不得擅自 `db push`、`migrate reset`、`DROP SCHEMA`、`TRUNCATE` 或覆盖已有数据。Preview 的 development 端点不得写入 Production。
 - `DATABASE_URL` 是运行时数据库连接，`DIRECT_URL` 是迁移/管理连接；配置须和对应 Prisma 6 Schema、Neon 分支匹配。**不要把 Neon development URL 写入本地 SQLite `.env` 或前端环境变量。**
 - SQLite 的 `DateTime` 曾按 **Unix 毫秒整数**存储；跨库转换时按毫秒构造 `Date`，用 `getTime()` 校验。`lessonDate` 是 `YYYY-MM-DD` 日历字符串，不能当时间戳重新换算。
 - 保留 cuid、课程版本、唯一约束、FSRS 的 due/stability/difficulty/state/reps/lapses/lastReview、ReviewEvent 历史和原始关联。迁移不得重新计算历史 FSRS。
@@ -55,11 +55,11 @@
 
 - **绝不泄露** API Key、连接字符串、数据库密码、Session、Token 或 `.env` 内容。不要打印完整凭据、写入前端、提交 Git 或放进错误响应。
 - `/api/health` 及错误日志不得返回 `DATABASE_URL`、`DIRECT_URL` 或秘密。任何公开接口均按最小信息原则处理。
-- 当前项目曾缺少登录保护；在身份验证、授权、服务端限流与费用防护确认前，**不得将个人数据写入接口或 DeepSeek 付费接口匿名开放到公网**。CORS、隐藏按钮和全局调用次数都不能替代鉴权。
+- 正式站已有会话鉴权、邀请码注册和 AI 额度。CORS、隐藏按钮和全站次数都不能替代鉴权。不得把 DeepSeek 或学习数据对未登录用户开放。Vercel Standard Protection 是否关闭须用户当轮决定，不得擅自关闭。
 - Vercel Functions 不得依赖 Windows 绝对路径或本地文件作为持久化存储；AI 缓存与学习数据应使用持久层；日志使用受支持的日志方式，TTS 临时文件要专门处理。
 - 不要因迁移自动启用在线 TTS 或付费 AI 请求；仅在用户授权的真实测试中调用，并报告成功/失败、使用模型及费用风险。
 - 学习日期与绝对时间分开处理。学习日时区应**显式配置**，不得依服务器位置或推测的用户所在地硬编码；历史 `lessonDate` 不擅自改写。
-- 用真实 Vercel Preview 才能证明部署环境兼容；本地构建通过只能标记为“构建通过”，不能标记“已上线/已验收”。
+- 本地构建通过只能标记为“构建通过”。Preview 与 Production 必须分别验收；不得用 Preview URL 代替正式站。
 
 ## 6. 产品与 UI/UX 长期约定
 
