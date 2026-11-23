@@ -52,6 +52,28 @@ check("[启动] production 主机被拒绝", rejected({
 }).includes("Refusing"));
 check("[启动] 携带付费模型密钥被拒绝", rejected({ ...development, DEEPSEEK_API_KEY: "sk-test" }).includes("付费"));
 check("[启动] 打开公开注册被拒绝", rejected({ ...development, AUTH_SIGNUP: "open" }).includes("注册"));
+check("[启动] Production 环境被拒绝", rejected({ ...development, VERCEL: "1", VERCEL_ENV: "production", BETTER_AUTH_URL: "https://lab.example" }).includes("Production"));
+check("[启动] Preview 缺少 https 域名被拒绝", rejected({ ...development, VERCEL: "1", VERCEL_ENV: "preview", BETTER_AUTH_URL: "http://lab.example" }).includes("https"));
+check("[启动] Preview 使用平台域名", assertPreviewBoot({
+  ...development,
+  VERCEL: "1",
+  VERCEL_ENV: "preview",
+  VERCEL_URL: "english-listening-lab-preview.vercel.app",
+}).mode === "postgres-guarded");
+check("[启动] Preview 拒绝其他域名", rejected({
+  ...development,
+  VERCEL: "1",
+  VERCEL_ENV: "preview",
+  VERCEL_URL: "english-listening-lab-preview.vercel.app",
+  BETTER_AUTH_URL: "https://production.example",
+}).includes("一致"));
+check("[启动] 本机模拟可以使用回环地址", assertPreviewBoot({
+  ...development,
+  VERCEL: "1",
+  VERCEL_ENV: "preview",
+  VERCEL_SIMULATION: "1",
+  BETTER_AUTH_URL: "http://127.0.0.1:8798",
+}).mode === "postgres-guarded");
 
 if (failures.length) {
   console.error(failures.join("\n"));

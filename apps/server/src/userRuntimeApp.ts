@@ -3,6 +3,7 @@ import { toNodeHandler } from "better-auth/node";
 import cors from "cors";
 import express from "express";
 import { clientIpHeader, getAuth } from "./auth.js";
+import { previewTrustedOrigins } from "./previewBoot.js";
 import { AppError } from "./errors.js";
 import { resolveRequestLearner } from "./learnerIdentity.js";
 import {
@@ -37,13 +38,21 @@ async function requireLearner(req: express.Request) {
   return resolved.learner;
 }
 
-export function createUserRuntimeApp() {
+function vercelIp(req: express.Request) {
+  const header = String(req.headers["x-vercel-forwarded-for"] || "");
+  const first = header.split(",")[0]?.trim() || "";
+  if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(first) || first.includes(":")) return first;
+  return "";
+}
+
+export function createUserRuntimeApp(options: { platform?: "local" | "vercel" } = {}) {
   assertConfiguredRuntime();
+  const vercel = options.platform === "vercel";
   const app = express();
-  app.set("trust proxy", false);
+  app.set("trust proxy", vercel ? 1 : false);
   app.use((req, _res, next) => {
     delete req.headers[clientIpHeader];
-    const ip = socketIp(req);
+    const ip = vercel ? vercelIp(req) : socketIp(req);
     if (ip) req.headers[clientIpHeader] = ip;
     next();
   });
@@ -55,7 +64,20 @@ export function createUserRuntimeApp() {
     }
     Promise.resolve(toNodeHandler(auth)(req, res)).catch(next);
   });
-  app.use(cors({ origin: [/^http:\/\/127\.0\.0\.1:\d+$/, /^http:\/\/localhost:\d+$/], credentials: true }));
+  app.use(cors({
+    origin(origin, callback) {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+      const local = !vercel && (/^http:\/\/127\.0\.0\.1:\d+$/.test(origin) || /^http:\/\/localhost:\d+$/.test(origin));
+      const listed = vercel
+        ? previewTrustedOrigins().includes(origin)
+        : (process.env.BETTER_AUTH_TRUSTED_ORIGINS || "").split(",").map((item) => item.trim()).includes(origin);
+      callback(null, local || listed);
+    },
+    credentials: true,
+  }));
   app.use(express.json({ limit: "1mb" }));
   mountLearnerBusinessRoutes(app);
 

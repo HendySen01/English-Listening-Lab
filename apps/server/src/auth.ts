@@ -1,5 +1,6 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
+import { previewAuthBase, previewTrustedOrigins } from "./previewBoot.js";
 import { authDb, postgresRuntimeRequested } from "./runtimeClients.js";
 import { redactSecrets } from "./serverLog.js";
 
@@ -38,6 +39,7 @@ function trustedOrigins() {
     "http://127.0.0.1:8787",
     "http://localhost:8787",
   ];
+  if (process.env.VERCEL === "1") return previewTrustedOrigins();
   const origins = configured.length ? configured : local;
   if (process.env.AUTH_SELFTEST === "1") origins.push("http://127.0.0.1:*", "http://localhost:*");
   return origins;
@@ -60,7 +62,7 @@ export function getAuth() {
   authKey = key;
   auth = betterAuth({
     appName: "英语学习实验室",
-    baseURL: process.env.BETTER_AUTH_URL?.trim() || "http://127.0.0.1:8787",
+    baseURL: process.env.VERCEL === "1" ? previewAuthBase() : (process.env.BETTER_AUTH_URL?.trim() || "http://127.0.0.1:8787"),
     basePath: "/api/auth",
     secret,
     trustedOrigins: trustedOrigins(),
