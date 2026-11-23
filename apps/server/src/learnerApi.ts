@@ -3,7 +3,8 @@ import type { VerifiedLearner } from "./learnerIdentity.js";
 import { assertPaidAiMock } from "./learnerAiGuard.js";
 import { practiceOwnWord, rateOwnWord } from "./learnerReview.js";
 import { AppError } from "./errors.js";
-import { addDays, localISODate, THEME_ZH } from "./content.js";
+import { THEME_ZH } from "./content.js";
+import { addStudyDays, readStudyTimeZone, studyDate, studyDayBounds, studyNow } from "./studyTime.js";
 import type { RatingName } from "./srs.js";
 import { getUserPrisma } from "./userDatabase.js";
 
@@ -154,7 +155,7 @@ async function createOfflineLesson(learner: VerifiedLearner, lessonDate: string,
     where: { userId: learner.learnerId, lessonDate },
     orderBy: { version: "desc" },
   });
-  const id = `lesson_${learner.learnerId}_${source}_${(latest?.version ?? 0) + 1}`;
+  const id = `lesson_${learner.learnerId}_${lessonDate}_${source}_${(latest?.version ?? 0) + 1}`;
   await db().$transaction([
     db().dailyLesson.updateMany({ where: { userId: learner.learnerId, lessonDate }, data: { active: false } }),
     db().dailyLesson.create({
@@ -183,8 +184,8 @@ async function createOfflineLesson(learner: VerifiedLearner, lessonDate: string,
   return ownLesson(learner, id);
 }
 
-export async function ensureOwnToday(learner: VerifiedLearner, now = new Date()) {
-  const lessonDate = localISODate(now);
+export async function ensureOwnToday(learner: VerifiedLearner, now = studyNow()) {
+  const lessonDate = studyDate(now);
   const existing = await db().dailyLesson.findFirst({
     where: { userId: learner.learnerId, lessonDate, active: true },
     include: lessonInclude,
@@ -195,7 +196,7 @@ export async function ensureOwnToday(learner: VerifiedLearner, now = new Date())
 
 export async function createOwnAiVersion(learner: VerifiedLearner, now = new Date()) {
   assertPaidAiMock();
-  return createOfflineLesson(learner, localISODate(now), "ai");
+  return createOfflineLesson(learner, studyDate(now), "ai");
 }
 
 export async function ownLibrary(learner: VerifiedLearner) {
@@ -264,6 +265,7 @@ export async function addOwnSession(learner: VerifiedLearner, lessonId: string |
       userId: learner.learnerId,
     },
   });
+  // StudySession 只有 createdAt 和 minutes。整段时长归入 createdAt 所在的上海学习日，不拆分跨午夜时段。
   return { ok: true };
 }
 
@@ -275,6 +277,9 @@ export async function ownStats(learner: VerifiedLearner) {
   const reviews = await db().wordProgress.count({ where: { userId, reps: { gt: 0 } } });
   const minutes = await db().studySession.aggregate({ where: { userId }, _sum: { minutes: true } });
   const usage = await db().aIUsageRecord.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 20 });
+  const sessions = await db().studySession.findMany({ where: { userId }, select: { createdAt: true, minutes: true } });
+  const reviewEvents = await db().reviewEvent.findMany({ where: { userId }, select: { createdAt: true } });
+  const lessons = await db().dailyLesson.findMany({ where: { userId }, select: { lessonDate: true } });
   return {
     words,
     known,
@@ -283,7 +288,27 @@ export async function ownStats(learner: VerifiedLearner) {
     quizTotal: attempts.length,
     quizCorrect: attempts.filter((item) => item.correct).length,
     usage: usage.map((item) => ({ kind: item.kind, model: item.model, success: item.success, createdAt: item.createdAt })),
+    studyTimeZone: readStudyTimeZone(),
+    days: {
+      lessons: countBy(lessons, (item) => item.lessonDate),
+      sessions: sumBy(sessions, (item) => studyDate(item.createdAt), (item) => item.minutes),
+      reviews: countBy(reviewEvents, (item) => studyDate(item.createdAt)),
+      usage: countBy(usage, (item) => studyDate(item.createdAt)),
+    },
   };
+}
+
+function countBy<T>(rows: T[], dateOf: (row: T) => string) {
+  return sumBy(rows, dateOf, () => 1);
+}
+
+function sumBy<T>(rows: T[], dateOf: (row: T) => string, valueOf: (row: T) => number) {
+  const totals = new Map<string, number>();
+  for (const row of rows) {
+    const date = dateOf(row);
+    totals.set(date, (totals.get(date) ?? 0) + valueOf(row));
+  }
+  return [...totals.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([date, total]) => ({ date, total }));
 }
 
 const settingDefaults = {
@@ -331,9 +356,9 @@ function clamp(value: unknown, min: number, max: number, fallback: number) {
   return Math.min(max, Math.max(min, Math.round(number)));
 }
 
-export async function ownDashboard(learner: VerifiedLearner, now = new Date()) {
+export async function ownDashboard(learner: VerifiedLearner, now = studyNow()) {
   const settings = await ownSettings(learner);
-  const today = localISODate(now);
+  const today = studyDate(now);
   const lesson = await db().dailyLesson.findFirst({
     where: { userId: learner.learnerId, lessonDate: today, active: true },
     select: { id: true, lessonDate: true, theme: true, newWordCount: true },
@@ -341,17 +366,26 @@ export async function ownDashboard(learner: VerifiedLearner, now = new Date()) {
   const dueCount = await db().wordProgress.count({
     where: { userId: learner.learnerId, reps: { gt: 0 }, due: { lte: now } },
   });
+  const historyRows = await db().dailyLesson.findMany({
+    where: { userId: learner.learnerId },
+    select: { id: true, lessonDate: true, version: true, active: true },
+    orderBy: [{ lessonDate: "desc" }, { version: "desc" }],
+  });
+  const history = [...new Set(historyRows.map((item) => item.lessonDate))].map((date) => ({
+    date,
+    lessons: historyRows.filter((item) => item.lessonDate === date).map((item) => ({ id: item.id, version: item.version, active: item.active })),
+  }));
   const week = [];
   for (let offset = 6; offset >= 0; offset -= 1) {
-    const date = addDays(today, -offset);
-    const start = new Date(`${date}T00:00:00`);
-    const end = new Date(`${date}T23:59:59.999`);
+    const date = addStudyDays(today, -offset);
+    const bounds = studyDayBounds(date);
     const sessions = await db().studySession.findMany({
-      where: { userId: learner.learnerId, createdAt: { gte: start, lte: end } },
+      where: { userId: learner.learnerId, createdAt: { gte: bounds.start, lt: bounds.end } },
     });
-    week.push({ date, minutes: sessions.reduce((sum, item) => sum + item.minutes, 0), hasLesson: Boolean(lesson && lesson.lessonDate === date) });
+    const lessonCount = historyRows.filter((item) => item.lessonDate === date).length;
+    week.push({ date, minutes: sessions.reduce((sum, item) => sum + item.minutes, 0), lessonCount, hasLesson: lessonCount > 0 });
   }
-  return { date: today, dueCount, lesson, week, settings: { theme: settings.theme, dailyNewWords: settings.dailyNewWords } };
+  return { date: today, studyTimeZone: readStudyTimeZone(), dueCount, lesson, week, history, settings: { theme: settings.theme, dailyNewWords: settings.dailyNewWords } };
 }
 
 export async function ownReviewQueue(learner: VerifiedLearner, now = new Date()) {

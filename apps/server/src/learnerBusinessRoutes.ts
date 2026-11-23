@@ -28,7 +28,7 @@ import {
 } from "./learnerApi.js";
 import { assertPaidAiMock } from "./learnerAiGuard.js";
 import { resolveRequestLearner } from "./learnerIdentity.js";
-import { localISODate } from "./content.js";
+import { studyDate, studyNow } from "./studyTime.js";
 import type { RatingName } from "./srs.js";
 
 function assertWriteOrigin(req: express.Request) {
@@ -97,7 +97,7 @@ export function mountLearnerBusinessRoutes(app: express.Express) {
   route("post", "/api/lessons/today", async (req) => ensureOwnToday(await learnerOf(req)));
   route("post", "/api/lessons/ai-version", async (req) => createOwnAiVersion(await learnerOf(req)));
   route("post", "/api/lessons/:id/activate", async (req) => activateOwnLesson(await learnerOf(req), req.params.id));
-  route("get", "/api/lessons/today/versions", async (req) => ownLessonVersions(await learnerOf(req), localISODate()));
+  route("get", "/api/lessons/today/versions", async (req) => ownLessonVersions(await learnerOf(req), studyDate(studyNow())));
   route("get", "/api/lessons", async (req) => ownLessons(await learnerOf(req)));
   route("get", "/api/lessons/:id", async (req) => ownLesson(await learnerOf(req), req.params.id));
   route("patch", "/api/lessons/:id/progress", async (req) => saveOwnLessonProgress(await learnerOf(req), req.params.id, req.body?.progress));
