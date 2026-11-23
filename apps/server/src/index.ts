@@ -1,6 +1,9 @@
 import "dotenv/config";
 import fs from "node:fs";
 import { createApp } from "./app.js";
+import { assertLocalServerAllowed } from "./previewBoot.js";
+
+assertLocalServerAllowed();
 import { audioDir, logDir } from "./paths.js";
 
 fs.mkdirSync(audioDir, { recursive: true });

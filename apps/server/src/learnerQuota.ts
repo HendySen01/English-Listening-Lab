@@ -1,9 +1,9 @@
 // 隔离运行时的付费次数预留。金额只有在价格和硬预算都已配置时才预留。
 // 未配置预算时不能把次数限制说成费用保护，真实模型调用保持拒绝。
-import { Prisma } from "./generated/user/index.js";
 import { AppError } from "./errors.js";
 import type { VerifiedLearner } from "./learnerIdentity.js";
-import { getUserPrisma } from "./userDatabase.js";
+import { learnerTransactionOptions, lockLearnerScope } from "./learnerLock.js";
+import { learnerDb, postgresRuntimeRequested } from "./runtimeClients.js";
 import { studyDate, studyDayBounds, studyNow } from "./studyTime.js";
 
 const requestIdPattern = /^[A-Za-z0-9_-]{8,80}$/;
@@ -74,7 +74,11 @@ function normalizeRequestId(value: unknown) {
 
 async function ensureSchema() {
   if (schemaReady) return;
-  const db = getUserPrisma();
+  if (postgresRuntimeRequested()) {
+    schemaReady = true;
+    return;
+  }
+  const db = learnerDb();
   await db.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "AiCharge" (
       "id" TEXT NOT NULL PRIMARY KEY,
@@ -109,7 +113,7 @@ function heldCost(rows: Array<{ reservedCostMicros: number | null; actualCostMic
 export async function ownQuota(learner: VerifiedLearner, now = studyNow()) {
   await ensureSchema();
   const date = studyDate(now);
-  const db = getUserPrisma();
+  const db = learnerDb();
   const limits = {
     user: requiredInt("AI_USER_DAILY_LIMIT", 200),
     site: requiredInt("AI_SITE_DAILY_LIMIT", 1500),
@@ -155,8 +159,9 @@ export async function withAiCharge<T>(
   const model = input.model || "mock";
   const budget = budgetConfig();
   await ensureSchema();
-  const db = getUserPrisma();
-  const existing = await db.$transaction(async (tx) => {
+  const db = learnerDb();
+  const reserve = async (tx: Parameters<Parameters<typeof db.$transaction>[0]>[0]) => {
+    await lockLearnerScope(tx, `ai:${date}`);
     if (quotaFault) quotaFault();
     const prior = await tx.aiCharge.findFirst({ where: { userId: input.learner.learnerId, requestId } });
     if (prior) return { fresh: false, row: prior };
@@ -193,9 +198,12 @@ export async function withAiCharge<T>(
       },
     });
     return { fresh: true, row: created };
-  }).catch(async (error: unknown) => {
+  };
+  const options = learnerTransactionOptions();
+  const existing = await (options ? db.$transaction(reserve, options) : db.$transaction(reserve)).catch(async (error: unknown) => {
     if (error instanceof AppError) throw error;
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+    if (code === "P2002") {
       const prior = await db.aiCharge.findFirst({ where: { userId: input.learner.learnerId, requestId } });
       if (prior) return { fresh: false, row: prior };
     }

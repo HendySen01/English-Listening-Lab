@@ -8,10 +8,10 @@ import { AppError } from "./errors.js";
 import { THEME_ZH } from "./content.js";
 import { addStudyDays, readStudyTimeZone, studyDate, studyDayBounds, studyNow } from "./studyTime.js";
 import type { RatingName } from "./srs.js";
-import { getUserPrisma } from "./userDatabase.js";
+import { learnerDb } from "./runtimeClients.js";
 
 function db() {
-  return getUserPrisma();
+  return learnerDb();
 }
 
 const lessonFields = {

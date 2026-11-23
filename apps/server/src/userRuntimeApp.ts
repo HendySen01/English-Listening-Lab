@@ -21,7 +21,7 @@ import {
 } from "./learnerScope.js";
 import { denyUnscopedApi, mountLearnerBusinessRoutes } from "./learnerBusinessRoutes.js";
 import { redactSecrets, reportServerError } from "./serverLog.js";
-import { assertUserRuntimeEnabled } from "./userDatabase.js";
+import { assertConfiguredRuntime } from "./runtimeClients.js";
 
 function socketIp(req: express.Request) {
   const address = req.socket.remoteAddress || "";
@@ -38,7 +38,7 @@ async function requireLearner(req: express.Request) {
 }
 
 export function createUserRuntimeApp() {
-  assertUserRuntimeEnabled();
+  assertConfiguredRuntime();
   const app = express();
   app.set("trust proxy", false);
   app.use((req, _res, next) => {

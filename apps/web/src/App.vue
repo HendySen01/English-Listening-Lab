@@ -30,6 +30,7 @@
           <button class="choice" type="button" :aria-pressed="mode === 'light'" @click="setTheme('light')">浅色</button>
           <button class="choice" type="button" :aria-pressed="mode === 'dark'" @click="setTheme('dark')">深色</button>
           <button class="choice" type="button" :aria-pressed="mode === 'system'" @click="setTheme('system')">跟随系统</button>
+          <button v-if="sessionEmail" class="choice" type="button" @click="signOut">退出</button>
         </div>
       </header>
       <main id="main" class="page">
@@ -40,15 +41,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, watch } from "vue";
-import { useRoute } from "vue-router";
+import { computed, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { BarChart3, BookOpen, CalendarDays, FileText, Headphones, History, Library, RotateCcw, Settings } from "lucide-vue-next";
 import { api } from "./api";
+import { authClient } from "./lib/authClient";
 import { applyTheme, useAppStore, watchSystemTheme } from "./stores/app";
 
 const route = useRoute();
+const router = useRouter();
 const store = useAppStore();
-const standalone = computed(() => route.path.startsWith("/preview") || route.path === "/auth-lab");
+const sessionEmail = ref("");
+const standalone = computed(() => route.path.startsWith("/preview") || route.path === "/auth-lab" || route.path === "/login");
 const titles: Record<string, string> = {
   "/": "今天",
   "/lesson": "我的课程",
@@ -73,8 +77,20 @@ async function setTheme(next: string) {
   });
 }
 
+async function refreshSession() {
+  const session = await authClient.getSession();
+  sessionEmail.value = session.data?.user.email || "";
+}
+
+async function signOut() {
+  await authClient.signOut();
+  sessionEmail.value = "";
+  await router.push("/login");
+}
+
 onMounted(() => {
   watchSystemTheme();
+  void refreshSession();
   if (!standalone.value) void store.load();
 });
 

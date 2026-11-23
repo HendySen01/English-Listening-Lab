@@ -3,10 +3,9 @@
 import { fromNodeHeaders } from "better-auth/node";
 import type { IncomingHttpHeaders } from "node:http";
 import { getAuth } from "./auth.js";
-import { getAuthPrisma } from "./authDatabase.js";
 import { AppError } from "./errors.js";
 import type { PrismaClient } from "./generated/user/index.js";
-import { getUserPrisma } from "./userDatabase.js";
+import { authDb, learnerDb } from "./runtimeClients.js";
 
 type LearnerDb = Pick<PrismaClient, "learner">;
 
@@ -28,9 +27,9 @@ export type LearnerResolution =
 export async function resolveLearnerFromSession(session: { user?: { id?: string } } | null): Promise<LearnerResolution> {
   const authUserId = session?.user?.id?.trim() || "";
   if (!authUserId) return { ok: false, status: 401, code: "UNAUTHENTICATED", message: "未登录" };
-  const authUser = await getAuthPrisma().user.findUnique({ where: { id: authUserId } });
+  const authUser = await authDb().user.findUnique({ where: { id: authUserId } });
   if (!authUser) return { ok: false, status: 409, code: "LEARNER_BINDING_INVALID", message: "学习者绑定状态异常" };
-  const learner = await getUserPrisma().learner.findUnique({ where: { authUserId } });
+  const learner = await learnerDb().learner.findUnique({ where: { authUserId } });
   if (!learner) return { ok: false, status: 403, code: "LEARNER_UNBOUND", message: "当前账号还没有绑定学习者" };
   if (learner.id.length === 0 || learner.authUserId !== authUserId || learner.authUserId.startsWith("unbound:") || !learner.boundAt) {
     return { ok: false, status: 409, code: "LEARNER_BINDING_INVALID", message: "学习者绑定状态异常" };
@@ -58,7 +57,7 @@ export async function bindUnboundLearner(db: LearnerDb, input: { learnerId: stri
   if (!authUserId || authUserId.startsWith("unbound:")) {
     throw new AppError(409, "LEARNER_BINDING_INVALID", "不能把学习者绑定到未绑定标记。");
   }
-  const authUser = await getAuthPrisma().user.findUnique({ where: { id: authUserId } });
+  const authUser = await authDb().user.findUnique({ where: { id: authUserId } });
   if (!authUser) throw new AppError(409, "LEARNER_BINDING_INVALID", "认证用户不存在，绑定已停止。");
   const learner = await db.learner.findUnique({ where: { id: input.learnerId } });
   if (!learner) throw new AppError(404, "NOT_FOUND", "找不到学习者。");

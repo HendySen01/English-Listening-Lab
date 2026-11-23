@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { getAuthPrisma } from "./authDatabase.js";
+import { authDb, postgresRuntimeRequested } from "./runtimeClients.js";
 import { redactSecrets } from "./serverLog.js";
 
 const clientIpHeader = "x-lab-client-ip";
@@ -55,7 +55,7 @@ let authKey = "";
 export function getAuth() {
   const secret = authSecret();
   if (!secret) return null;
-  const key = `${secret}\n${process.env.BETTER_AUTH_URL || ""}\n${process.env.AUTH_DATABASE_URL || ""}\n${process.env.AUTH_SELFTEST || ""}`;
+  const key = `${secret}\n${process.env.BETTER_AUTH_URL || ""}\n${process.env.AUTH_DATABASE_URL || ""}\n${process.env.AUTH_SELFTEST || ""}\n${process.env.POSTGRES_RUNTIME || ""}`;
   if (auth && authKey === key) return auth;
   authKey = key;
   auth = betterAuth({
@@ -64,7 +64,7 @@ export function getAuth() {
     basePath: "/api/auth",
     secret,
     trustedOrigins: trustedOrigins(),
-    database: prismaAdapter(getAuthPrisma(), { provider: "sqlite" }),
+    database: prismaAdapter(authDb(), { provider: postgresRuntimeRequested() ? "postgresql" : "sqlite" }),
     emailAndPassword: {
       enabled: true,
       disableSignUp: true,

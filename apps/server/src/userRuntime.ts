@@ -1,7 +1,9 @@
 import "dotenv/config";
 import { createUserRuntimeApp } from "./userRuntimeApp.js";
+import { assertLocalServerAllowed } from "./previewBoot.js";
 import { assertUserRuntimeEnabled } from "./userDatabase.js";
 
+assertLocalServerAllowed();
 assertUserRuntimeEnabled();
 const port = Number(process.env.USER_RUNTIME_PORT || 8797);
 if (!Number.isInteger(port) || port < 1 || port > 65535 || port === 8787) {

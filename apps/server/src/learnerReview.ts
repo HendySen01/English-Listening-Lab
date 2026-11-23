@@ -1,10 +1,10 @@
 // 正式复习沿用现有 FSRS 计算、进度版本校验和事务。
 // 查询、幂等和同形词镜像都限制在当前 Learner，不重算已有历史。
-import { Prisma } from "./generated/user/index.js";
 import type { VerifiedLearner } from "./learnerIdentity.js";
 import { AppError } from "./errors.js";
 import { previewDays, schedule, type RatingName, type StoredCard } from "./srs.js";
-import { getUserPrisma } from "./userDatabase.js";
+import { learnerTransactionOptions, lockLearnerScope } from "./learnerLock.js";
+import { learnerDb } from "./runtimeClients.js";
 
 const requestIdPattern = /^[A-Za-z0-9_-]{8,80}$/;
 
@@ -18,7 +18,7 @@ type ProgressVersion = {
   incorrectCount: number;
 };
 
-type ReviewClient = Pick<ReturnType<typeof getUserPrisma>, "wordProgress" | "vocabulary" | "reviewEvent">;
+type ReviewClient = Pick<ReturnType<typeof learnerDb>, "wordProgress" | "vocabulary" | "reviewEvent">;
 
 export function normalizeLearnerRequestId(value: unknown) {
   if (value == null || value === "") return null;
@@ -116,9 +116,8 @@ export function setLearnerReviewFaults(faults: {
 }
 
 function isTransientConflict(error: unknown) {
-  if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    return ["P2034", "P2028", "P1008"].includes(error.code);
-  }
+  const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+  if (["P2034", "P2028", "P1008"].includes(code)) return true;
   const message = error instanceof Error ? error.message : "";
   return message.includes("database is locked") || message.includes("SQLITE_BUSY");
 }
@@ -259,13 +258,16 @@ async function runReviewTransaction<T>(
   rating: string,
   work: (db: ReviewClient) => Promise<T>,
 ) {
-  const db = getUserPrisma();
+  const db = learnerDb();
   for (let attempt = 1; attempt <= reviewAttemptLimit; attempt += 1) {
     try {
-      return await db.$transaction(async (tx) => {
+      const run = async (tx: ReviewClient) => {
         reviewStarts += 1;
+        await lockLearnerScope(tx, `fsrs:${vocabularyId}`);
         return work(tx);
-      });
+      };
+      const options = learnerTransactionOptions();
+      return options ? await db.$transaction(run, options) : await db.$transaction(run);
     } catch (error) {
       if (requestId) {
         const prior = await replay(db, learnerId, requestId, vocabularyId, mode, rating);

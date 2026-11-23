@@ -1,7 +1,7 @@
 // 所有读写都使用已经验证的 Learner.id。资源不属于该学习者时按不存在处理。
 import { Prisma } from "./generated/user/index.js";
 import type { VerifiedLearner } from "./learnerIdentity.js";
-import { getUserPrisma } from "./userDatabase.js";
+import { learnerDb } from "./runtimeClients.js";
 
 export type ScopeResult<T> =
   | { ok: true; value: T }
@@ -10,7 +10,7 @@ export type ScopeResult<T> =
 const missing: ScopeResult<never> = { ok: false, status: 404, code: "NOT_FOUND", message: "找不到资源" };
 
 function db() {
-  return getUserPrisma();
+  return learnerDb();
 }
 
 const lessonSelect = { id: true, lessonDate: true, version: true, theme: true, userId: true } as const;
