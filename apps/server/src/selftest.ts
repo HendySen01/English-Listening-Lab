@@ -2,8 +2,10 @@ import "dotenv/config";
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { audioDir, previewCachePath, repoRoot } from "./paths.ts";
+import { redactSecrets, reportServerError } from "./serverLog.ts";
 
-const root = path.resolve("D:/Projects/English-Listening-Lab");
+const root = repoRoot;
 const db = path.join(root, "data", "selftest.db");
 process.env.DATABASE_URL = `file:${db.replace(/\\/g, "/")}`;
 process.env.LLM_API_KEY = "";
@@ -25,6 +27,61 @@ const failures: string[] = [];
 function check(name: string, condition: boolean, detail = "") {
   if (!condition) failures.push(`${name}${detail ? `: ${detail}` : ""}`);
   else console.log(`通过 ${name}`);
+}
+
+check("音频目录在项目 data 下", audioDir === path.join(root, "data", "audio"));
+check("解析缓存仍在原来的数据文件", previewCachePath === path.join(root, "data", "preview-explanations.json"));
+for (const relative of ["index.ts", "app.ts", "previewExplain.ts", "paths.ts"]) {
+  const source = fs.readFileSync(new URL(`./${relative}`, import.meta.url), "utf8");
+  check(`${relative} 没有写死本机绝对路径`, !source.includes("D:/Projects") && !source.includes("D:\\\\Projects"));
+}
+const secretUrl = "postgresql://lab:super-secret-password@localhost/neondb";
+const redacted = redactSecrets(`connect ${secretUrl} and file:${path.join(root, "data", "lab.db")}`);
+check("连接串会被脱敏", redacted.includes("[redacted-database-url]") && !redacted.includes("super-secret-password") && !redacted.includes("lab.db"));
+const logMarker = `health-check-${Date.now()}`;
+reportServerError(new Error(`${logMarker} ${secretUrl}`));
+const serverLog = fs.readFileSync(path.join(root, "logs", "server.log"), "utf8");
+check("错误日志不保留连接串", serverLog.includes(logMarker) && serverLog.includes("[redacted-database-url]") && !serverLog.includes("super-secret-password"));
+
+const { createApp } = await import("./app.ts");
+const app = createApp();
+const server = await new Promise<import("node:http").Server>((resolve) => {
+  const started = app.listen(0, "127.0.0.1", () => resolve(started));
+});
+try {
+  const address = server.address();
+  const port = address && typeof address === "object" ? address.port : 0;
+  const response = await fetch(`http://127.0.0.1:${port}/api/health`);
+  const body = await response.json() as { ok?: boolean; database?: string };
+  const text = JSON.stringify(body);
+  check(
+    "健康检查只有可用状态",
+    response.status === 200 && body.ok === true && body.database === undefined && !text.includes("file:") && !text.includes("postgres"),
+  );
+  const previousVercel = process.env.VERCEL;
+  const previousTtsKey = process.env.TTS_API_KEY;
+  const previousTtsBase = process.env.TTS_BASE_URL;
+  process.env.VERCEL = "1";
+  process.env.TTS_API_KEY = "test-key";
+  process.env.TTS_BASE_URL = "https://api.deepseek.com";
+  try {
+    const ttsResponse = await fetch(`http://127.0.0.1:${port}/api/tts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "hello", rate: 1, useOnline: true }),
+    });
+    const ttsBody = await ttsResponse.json() as { mode?: string; url?: string };
+    check("部署环境不保存在线音频", ttsResponse.status === 200 && ttsBody.mode === "browser" && ttsBody.url === undefined);
+  } finally {
+    if (previousVercel === undefined) delete process.env.VERCEL;
+    else process.env.VERCEL = previousVercel;
+    if (previousTtsKey === undefined) delete process.env.TTS_API_KEY;
+    else process.env.TTS_API_KEY = previousTtsKey;
+    if (previousTtsBase === undefined) delete process.env.TTS_BASE_URL;
+    else process.env.TTS_BASE_URL = previousTtsBase;
+  }
+} finally {
+  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 }
 
 const today = localISODate();
