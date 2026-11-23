@@ -16,6 +16,7 @@ import {
   ownLessons,
   ownLessonVersions,
   ownLibrary,
+  ownQuota,
   ownReviewQueue,
   ownSettings,
   ownStats,
@@ -27,6 +28,7 @@ import {
   updateOwnSettings,
 } from "./learnerApi.js";
 import { assertPaidAiMock } from "./learnerAiGuard.js";
+import { withAiCharge } from "./learnerQuota.js";
 import { resolveRequestLearner } from "./learnerIdentity.js";
 import { studyDate, studyNow } from "./studyTime.js";
 import type { RatingName } from "./srs.js";
@@ -80,22 +82,34 @@ export function mountLearnerBusinessRoutes(app: express.Express) {
     await learnerOf(req);
     return { ok: true, ai: "mock-only" };
   });
+  route("get", "/api/ai/quota", async (req) => ownQuota(await learnerOf(req)));
   route("post", "/api/ai/test", async (req) => {
-    await learnerOf(req);
-    assertPaidAiMock();
-    return { ok: true, mocked: true };
+    const learner = await learnerOf(req);
+    const declared = typeof req.body?.inputTokens === "number" ? req.body.inputTokens : undefined;
+    const result = await withAiCharge({ learner, requestId: req.body?.clientRequestId, kind: "probe", inputTokens: declared }, async () => {
+      assertPaidAiMock();
+      return { ok: true, mocked: true };
+    });
+    return result.value;
   });
   route("get", "/api/preview/explain", async (req) => {
     await learnerOf(req);
     const found = lookupPreviewExplanation(String(req.query.passageId || ""), String(req.query.word || ""), String(req.query.sentence || ""));
     return found || { source: "miss" };
   });
-  route("post", "/api/preview/explain", async (req) => explainOwnedPassage(await learnerOf(req), String(req.body?.passageId || "")));
+  route("post", "/api/preview/explain", async (req) => explainOwnedPassage(
+    await learnerOf(req),
+    String(req.body?.passageId || ""),
+    String(req.body?.word || ""),
+    String(req.body?.sentence || ""),
+    req.body?.clientRequestId,
+    req.body?.inputTokens,
+  ));
   route("get", "/api/dashboard", async (req) => ownDashboard(await learnerOf(req)));
   route("get", "/api/settings", async (req) => ownSettings(await learnerOf(req)));
   route("put", "/api/settings", async (req) => updateOwnSettings(await learnerOf(req), req.body ?? {}));
   route("post", "/api/lessons/today", async (req) => ensureOwnToday(await learnerOf(req)));
-  route("post", "/api/lessons/ai-version", async (req) => createOwnAiVersion(await learnerOf(req)));
+  route("post", "/api/lessons/ai-version", async (req) => createOwnAiVersion(await learnerOf(req), req.body?.clientRequestId, req.body?.inputTokens));
   route("post", "/api/lessons/:id/activate", async (req) => activateOwnLesson(await learnerOf(req), req.params.id));
   route("get", "/api/lessons/today/versions", async (req) => ownLessonVersions(await learnerOf(req), studyDate(studyNow())));
   route("get", "/api/lessons", async (req) => ownLessons(await learnerOf(req)));
@@ -103,7 +117,7 @@ export function mountLearnerBusinessRoutes(app: express.Express) {
   route("patch", "/api/lessons/:id/progress", async (req) => saveOwnLessonProgress(await learnerOf(req), req.params.id, req.body?.progress));
   route("post", "/api/lessons/:id/recall", async (req) => recallOwnLesson(await learnerOf(req), req.params.id, String(req.body?.text || "")));
   route("post", "/api/vocabulary/:id/known", async (req) => rateOwnWord(await learnerOf(req), req.params.id, "easy", "recall", req.body?.clientRequestId, req.body?.progress, true));
-  route("post", "/api/vocabulary/:id/easier", async (req) => easierOwnExample(await learnerOf(req), req.params.id));
+  route("post", "/api/vocabulary/:id/easier", async (req) => easierOwnExample(await learnerOf(req), req.params.id, req.body?.clientRequestId, req.body?.inputTokens));
   route("get", "/api/review", async (req) => ownReviewQueue(await learnerOf(req)));
   route("post", "/api/review/:id/practice", async (req) => {
     const learner = await learnerOf(req);
@@ -120,7 +134,7 @@ export function mountLearnerBusinessRoutes(app: express.Express) {
   route("get", "/api/library", async (req) => ownLibrary(await learnerOf(req)));
   route("get", "/api/stats", async (req) => ownStats(await learnerOf(req)));
   route("post", "/api/quiz/:id/answer", async (req) => answerOwnQuestion(await learnerOf(req), req.params.id, Number(req.body?.selected)));
-  route("post", "/api/quiz/:id/simpler", async (req) => simplerOwnQuestion(await learnerOf(req), req.params.id));
+  route("post", "/api/quiz/:id/simpler", async (req) => simplerOwnQuestion(await learnerOf(req), req.params.id, req.body?.clientRequestId, req.body?.inputTokens));
   route("post", "/api/sessions", async (req) => addOwnSession(await learnerOf(req), req.body?.lessonId || null, String(req.body?.module || "lesson"), Number(req.body?.minutes || 0)));
   route("post", "/api/tts", async (req) => {
     await learnerOf(req);

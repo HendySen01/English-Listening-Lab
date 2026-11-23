@@ -1,6 +1,8 @@
 // 业务读写只接受已经验证的 Learner。资源 ID 先按当前用户查找。
 import type { VerifiedLearner } from "./learnerIdentity.js";
 import { assertPaidAiMock } from "./learnerAiGuard.js";
+import { ownQuota, withAiCharge } from "./learnerQuota.js";
+import { lookupPreviewExplanation } from "./previewExplain.js";
 import { practiceOwnWord, rateOwnWord } from "./learnerReview.js";
 import { AppError } from "./errors.js";
 import { THEME_ZH } from "./content.js";
@@ -194,9 +196,13 @@ export async function ensureOwnToday(learner: VerifiedLearner, now = studyNow())
   return createOfflineLesson(learner, lessonDate, "offline");
 }
 
-export async function createOwnAiVersion(learner: VerifiedLearner, now = new Date()) {
-  assertPaidAiMock();
-  return createOfflineLesson(learner, studyDate(now), "ai");
+export async function createOwnAiVersion(learner: VerifiedLearner, clientRequestId?: unknown, inputTokens?: unknown, now = studyNow()) {
+  const declared = typeof inputTokens === "number" ? inputTokens : undefined;
+  const result = await withAiCharge({ learner, requestId: clientRequestId, kind: "lesson", now, inputTokens: declared }, async () => {
+    assertPaidAiMock();
+    return createOfflineLesson(learner, studyDate(now), "ai");
+  });
+  return result.value;
 }
 
 export async function ownLibrary(learner: VerifiedLearner) {
@@ -407,24 +413,32 @@ export async function ownReviewQueue(learner: VerifiedLearner, now = new Date())
   };
 }
 
-export async function easierOwnExample(learner: VerifiedLearner, vocabularyId: string) {
+export async function easierOwnExample(learner: VerifiedLearner, vocabularyId: string, clientRequestId?: unknown, inputTokens?: unknown) {
   const word = await db().vocabulary.findFirst({ where: { id: vocabularyId, userId: learner.learnerId } });
   if (!word) throw new AppError(404, "NOT_FOUND", "找不到资源");
-  assertPaidAiMock();
-  const example = `Mock ${word.lemma} example.`;
-  const updated = await db().vocabulary.updateMany({
-    where: { id: vocabularyId, userId: learner.learnerId },
-    data: { example, exampleZh: "测试例句", exampleFlagged: true },
+  const declared = typeof inputTokens === "number" ? inputTokens : undefined;
+  const result = await withAiCharge({ learner, requestId: clientRequestId, kind: "example", inputTokens: declared }, async () => {
+    assertPaidAiMock();
+    const example = `Mock ${word.lemma} example.`;
+    const updated = await db().vocabulary.updateMany({
+      where: { id: vocabularyId, userId: learner.learnerId },
+      data: { example, exampleZh: "测试例句", exampleFlagged: true },
+    });
+    if (updated.count !== 1) throw new AppError(404, "NOT_FOUND", "找不到资源");
+    return { example, exampleZh: "测试例句", source: "mock" };
   });
-  if (updated.count !== 1) throw new AppError(404, "NOT_FOUND", "找不到资源");
-  return { example, exampleZh: "测试例句", source: "mock" };
+  return result.value;
 }
 
-export async function simplerOwnQuestion(learner: VerifiedLearner, questionId: string) {
+export async function simplerOwnQuestion(learner: VerifiedLearner, questionId: string, clientRequestId?: unknown, inputTokens?: unknown) {
   const question = await db().quizQuestion.findFirst({ where: { id: questionId, userId: learner.learnerId } });
   if (!question) throw new AppError(404, "NOT_FOUND", "找不到资源");
-  assertPaidAiMock();
-  return { mode: "mock", text: question.simplerZh };
+  const declared = typeof inputTokens === "number" ? inputTokens : undefined;
+  const result = await withAiCharge({ learner, requestId: clientRequestId, kind: "simpler", inputTokens: declared }, async () => {
+    assertPaidAiMock();
+    return { mode: "mock", text: question.simplerZh };
+  });
+  return result.value;
 }
 
 export async function recallOwnLesson(learner: VerifiedLearner, lessonId: string, text: string) {
@@ -434,14 +448,22 @@ export async function recallOwnLesson(learner: VerifiedLearner, lessonId: string
   return { mode: "local-heuristic", accepted: true };
 }
 
-export async function explainOwnedPassage(learner: VerifiedLearner, passageId: string) {
+export async function explainOwnedPassage(learner: VerifiedLearner, passageId: string, word = "", sentence = "", clientRequestId?: unknown, inputTokens?: unknown) {
   const owned = await db().dailyLesson.findFirst({ where: { id: passageId, userId: learner.learnerId }, select: { id: true } });
   if (!owned) {
     const other = await db().dailyLesson.count({ where: { id: passageId, userId: { not: learner.learnerId } } });
     if (other > 0) throw new AppError(404, "NOT_FOUND", "找不到资源");
   }
-  assertPaidAiMock();
-  return { ok: true, mocked: true, passageId };
+  const cached = word ? lookupPreviewExplanation(passageId, word, sentence) : null;
+  if (cached) return { ok: true, charged: false, source: "cache" as const };
+  const declared = typeof inputTokens === "number" ? inputTokens : undefined;
+  const result = await withAiCharge({ learner, requestId: clientRequestId, kind: "explain", inputTokens: declared }, async () => {
+    assertPaidAiMock();
+    return { ok: true, charged: true, mocked: true, passageId };
+  });
+  return result.value;
 }
+
+export { ownQuota };
 
 export { practiceOwnWord, rateOwnWord, type RatingName };

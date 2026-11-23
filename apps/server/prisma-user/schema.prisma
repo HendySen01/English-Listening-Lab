@@ -27,6 +27,7 @@ model Learner {
   sessions    StudySession[]
   reviews     ReviewEvent[]
   usage       AIUsageRecord[]
+  charges     AiCharge[]
 }
 
 model UserSettings {
@@ -210,4 +211,28 @@ model AIUsageRecord {
 
   @@index([userId, createdAt])
   @@index([createdAt])
+}
+
+model AiCharge {
+  id                   String    @id
+  userId               String
+  requestId            String
+  model                String
+  kind                 String
+  studyDate            String
+  status               String
+  reservedCount        Int
+  promptTokens         Int?
+  completionTokens     Int?
+  reservedCostMicros   Int?
+  actualCostMicros     Int?
+  priceVersion         String?
+  resultJson           String?
+  createdAt            DateTime
+  settledAt            DateTime?
+  learner              Learner   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, requestId])
+  @@index([studyDate, status])
+  @@index([userId, studyDate, status])
 }
