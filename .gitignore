@@ -8,6 +8,8 @@ apps/server/src/generated/
 apps/web/dist/
 data/*.db
 data/*.db-journal
+data/*.db-wal
+data/*.db-shm
 data/audio/*
 !data/audio/.gitkeep
 logs/*.log

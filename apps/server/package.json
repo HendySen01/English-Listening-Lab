@@ -6,11 +6,13 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "db:push": "prisma db push",
-    "postinstall": "prisma generate",
-    "test": "tsx src/selftest.ts"
+    "auth:generate": "prisma generate --schema prisma-auth/schema.prisma",
+    "postinstall": "prisma generate && prisma generate --schema prisma-auth/schema.prisma",
+    "test": "tsx src/selftest.ts && tsx src/authSelftest.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.0",
+    "better-auth": "1.7.27",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",

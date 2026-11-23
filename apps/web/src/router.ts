@@ -15,6 +15,7 @@ import PreviewListening from "./preview/PreviewListening.vue";
 import PreviewContext from "./preview/PreviewContext.vue";
 import PreviewWordsCard from "./preview/PreviewWordsCard.vue";
 import PreviewListeningCard from "./preview/PreviewListeningCard.vue";
+import AuthLab from "./views/AuthLab.vue";
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -27,6 +28,7 @@ export const router = createRouter({
     { path: "/review", component: Review },
     { path: "/stats", component: Stats },
     { path: "/settings", component: Settings },
+    { path: "/auth-lab", component: AuthLab },
     { path: "/history", component: History },
     {
       path: "/preview",

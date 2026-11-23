@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { audioDir, previewCachePath, repoRoot } from "./paths.ts";
 import { redactSecrets, reportServerError } from "./serverLog.ts";
+import { DatabaseSync } from "node:sqlite";
 
 const root = repoRoot;
 const db = path.join(root, "data", "selftest.db");
@@ -11,6 +12,23 @@ process.env.DATABASE_URL = `file:${db.replace(/\\/g, "/")}`;
 process.env.LLM_API_KEY = "";
 process.env.TTS_API_KEY = "";
 if (fs.existsSync(db)) fs.rmSync(db);
+
+function labCounts() {
+  const database = new DatabaseSync(path.join(root, "data", "lab.db"), { readOnly: true });
+  try {
+    const progress = database.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(reps),0) AS reps, COALESCE(SUM(lapses),0) AS lapses FROM WordProgress").get() as { n: number; reps: number; lapses: number };
+    return {
+      lessons: Number(database.prepare("SELECT COUNT(*) AS n FROM DailyLesson").get().n),
+      progress: Number(progress.n),
+      reps: Number(progress.reps),
+      lapses: Number(progress.lapses),
+      reviews: Number(database.prepare("SELECT COUNT(*) AS n FROM ReviewEvent").get().n),
+    };
+  } finally {
+    database.close();
+  }
+}
+const labBefore = labCounts();
 
 execSync("npx prisma db push --skip-generate", {
   cwd: path.join(root, "apps/server"),
@@ -262,7 +280,6 @@ check("第二次生成仍无 AI", (await prisma.aIUsageRecord.count()) === 0);
 
 const upgradeFile = path.join(root, "data", "upgrade-test.db");
 if (fs.existsSync(upgradeFile)) fs.rmSync(upgradeFile);
-const { DatabaseSync } = await import("node:sqlite");
 const oldDb = new DatabaseSync(upgradeFile);
 oldDb.exec(`CREATE TABLE ReviewEvent (
   id TEXT PRIMARY KEY,
@@ -298,6 +315,8 @@ const report = {
 fs.mkdirSync(path.join(root, "logs"), { recursive: true });
 fs.writeFileSync(path.join(root, "logs", "selftest.json"), JSON.stringify(report, null, 2));
 await prisma.$disconnect();
+const labAfter = labCounts();
+check("真实学习库计数没有变化", JSON.stringify(labBefore) === JSON.stringify(labAfter), JSON.stringify({ labBefore, labAfter }));
 if (failures.length) {
   console.error(failures.join("\n"));
   process.exit(1);

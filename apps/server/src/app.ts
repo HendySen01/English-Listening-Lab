@@ -1,5 +1,7 @@
+import { fromNodeHeaders, toNodeHandler } from "better-auth/node";
 import cors from "cors";
 import express from "express";
+import { clientIpHeader, getAuth } from "./auth.js";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -37,11 +39,53 @@ import { audioDir } from "./paths.js";
 import { redactSecrets, reportServerError } from "./serverLog.js";
 import type { RatingName } from "./srs.js";
 
+function socketIp(req: express.Request) {
+  const address = req.socket.remoteAddress || "";
+  if (address === "::1") return "127.0.0.1";
+  if (address.startsWith("::ffff:")) return address.slice("::ffff:".length);
+  return address;
+}
+
 export function createApp() {
   const app = express();
+  app.set("trust proxy", false);
 
-  app.use(cors({ origin: [/^http:\/\/127\.0\.0\.1:\d+$/, /^http:\/\/localhost:\d+$/] }));
+  app.use((req, _res, next) => {
+    delete req.headers[clientIpHeader];
+    const ip = socketIp(req);
+    if (ip) req.headers[clientIpHeader] = ip;
+    next();
+  });
+
+  app.all("/api/auth/{*any}", (req, res, next) => {
+    const auth = getAuth();
+    if (!auth) {
+      res.status(503).json({ error: "认证尚未配置", code: "AUTH_NOT_CONFIGURED" });
+      return;
+    }
+    Promise.resolve(toNodeHandler(auth)(req, res)).catch(next);
+  });
+
+  app.use(cors({ origin: [/^http:\/\/127\.0\.0\.1:\d+$/, /^http:\/\/localhost:\d+$/], credentials: true }));
   app.use(express.json({ limit: "1mb" }));
+
+  app.get("/api/auth-session-check", async (req, res, next) => {
+    try {
+      const auth = getAuth();
+      if (!auth) {
+        res.status(503).json({ error: "认证尚未配置", code: "AUTH_NOT_CONFIGURED" });
+        return;
+      }
+      const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
+      if (!session) {
+        res.status(401).json({ error: "未登录", code: "UNAUTHENTICATED" });
+        return;
+      }
+      res.json({ id: session.user.id, email: session.user.email });
+    } catch (error) {
+      next(error);
+    }
+  });
 
   app.get("/api/preview/explain", (req, res) => {
     const passageId = String(req.query.passageId || "");

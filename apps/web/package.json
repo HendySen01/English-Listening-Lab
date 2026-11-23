@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@vueuse/core": "^15.0.0",
+    "better-auth": "1.7.27",
     "element-plus": "^2.11.7",
     "lucide-vue-next": "^1.0.0",
     "pinia": "^3.0.4",

@@ -1,5 +1,5 @@
 <template>
-  <router-view v-if="isPreview" />
+  <router-view v-if="standalone" />
   <div v-else class="app-shell">
     <a class="skip" href="#main">跳到内容</a>
     <aside class="sidebar">
@@ -48,7 +48,7 @@ import { applyTheme, useAppStore, watchSystemTheme } from "./stores/app";
 
 const route = useRoute();
 const store = useAppStore();
-const isPreview = computed(() => route.path.startsWith("/preview"));
+const standalone = computed(() => route.path.startsWith("/preview") || route.path === "/auth-lab");
 const titles: Record<string, string> = {
   "/": "今天",
   "/lesson": "我的课程",
@@ -75,10 +75,10 @@ async function setTheme(next: string) {
 
 onMounted(() => {
   watchSystemTheme();
-  if (!isPreview.value) void store.load();
+  if (!standalone.value) void store.load();
 });
 
-watch(isPreview, (preview) => {
+watch(standalone, (preview) => {
   if (!preview) void store.load();
 });
 </script>
