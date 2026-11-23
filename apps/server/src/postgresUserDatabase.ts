@@ -51,9 +51,15 @@ export function stagePreviewDatabaseUrls(env: NodeJS.ProcessEnv = process.env) {
   env.AUTH_DATABASE_URL = phaseUrl(pooled, authSchema, "1");
 }
 
-export async function openVerifiedPostgres(source?: { DATABASE_URL: string; DIRECT_URL: string }) {
+type NeonPair = { DATABASE_URL: string; DIRECT_URL: string };
+
+export async function openVerifiedPostgres(source?: NeonPair) {
   if (process.env.VERCEL === "1" && !source) throw new Error("Vercel 不能读取本地凭据文件。");
-  const env = source ?? readDotenv(new URL("../.env.neon.development", import.meta.url));
+  const fileEnv = readDotenv(new URL("../.env.neon.development", import.meta.url)) as Partial<NeonPair>;
+  const env: NeonPair = source ?? {
+    DATABASE_URL: fileEnv.DATABASE_URL || "",
+    DIRECT_URL: fileEnv.DIRECT_URL || "",
+  };
   const identity = assertDevelopmentPair(env);
   process.env.POSTGRES_RUNTIME = "1";
   process.env.NEON_DATABASE_URL = env.DATABASE_URL;

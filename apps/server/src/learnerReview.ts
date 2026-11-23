@@ -18,7 +18,7 @@ type ProgressVersion = {
   incorrectCount: number;
 };
 
-type ReviewClient = Pick<ReturnType<typeof learnerDb>, "wordProgress" | "vocabulary" | "reviewEvent">;
+type ReviewClient = Pick<ReturnType<typeof learnerDb>, "wordProgress" | "vocabulary" | "reviewEvent" | "$executeRaw">;
 
 export function normalizeLearnerRequestId(value: unknown) {
   if (value == null || value === "") return null;

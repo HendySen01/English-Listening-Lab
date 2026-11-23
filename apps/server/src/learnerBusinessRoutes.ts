@@ -33,6 +33,12 @@ import { resolveRequestLearner } from "./learnerIdentity.js";
 import { studyDate, studyNow } from "./studyTime.js";
 import type { RatingName } from "./srs.js";
 
+function routeId(value: string | string[]) {
+  const id = Array.isArray(value) ? value[0] : value;
+  if (!id) throw new AppError(400, "MISSING_ID", "缺少资源编号");
+  return id;
+}
+
 function assertWriteOrigin(req: express.Request) {
   const origin = String(req.headers.origin || "");
   if (!isTrustedRequestOrigin(origin)) throw new AppError(403, "BAD_ORIGIN", "请求来源不被允许");
@@ -120,14 +126,14 @@ export function mountLearnerBusinessRoutes(app: express.Express) {
   route("put", "/api/settings", async (req) => updateOwnSettings(await learnerOf(req), req.body ?? {}));
   route("post", "/api/lessons/today", async (req) => ensureOwnToday(await learnerOf(req)));
   route("post", "/api/lessons/ai-version", async (req) => createOwnAiVersion(await learnerOf(req), req.body?.clientRequestId, req.body?.inputTokens));
-  route("post", "/api/lessons/:id/activate", async (req) => activateOwnLesson(await learnerOf(req), req.params.id));
+  route("post", "/api/lessons/:id/activate", async (req) => activateOwnLesson(await learnerOf(req), routeId(req.params.id)));
   route("get", "/api/lessons/today/versions", async (req) => ownLessonVersions(await learnerOf(req), studyDate(studyNow())));
   route("get", "/api/lessons", async (req) => ownLessons(await learnerOf(req)));
-  route("get", "/api/lessons/:id", async (req) => ownLesson(await learnerOf(req), req.params.id));
-  route("patch", "/api/lessons/:id/progress", async (req) => saveOwnLessonProgress(await learnerOf(req), req.params.id, req.body?.progress));
-  route("post", "/api/lessons/:id/recall", async (req) => recallOwnLesson(await learnerOf(req), req.params.id, String(req.body?.text || "")));
-  route("post", "/api/vocabulary/:id/known", async (req) => rateOwnWord(await learnerOf(req), req.params.id, "easy", "recall", req.body?.clientRequestId, req.body?.progress, true));
-  route("post", "/api/vocabulary/:id/easier", async (req) => easierOwnExample(await learnerOf(req), req.params.id, req.body?.clientRequestId, req.body?.inputTokens));
+  route("get", "/api/lessons/:id", async (req) => ownLesson(await learnerOf(req), routeId(req.params.id)));
+  route("patch", "/api/lessons/:id/progress", async (req) => saveOwnLessonProgress(await learnerOf(req), routeId(req.params.id), req.body?.progress));
+  route("post", "/api/lessons/:id/recall", async (req) => recallOwnLesson(await learnerOf(req), routeId(req.params.id), String(req.body?.text || "")));
+  route("post", "/api/vocabulary/:id/known", async (req) => rateOwnWord(await learnerOf(req), routeId(req.params.id), "easy", "recall", req.body?.clientRequestId, req.body?.progress, true));
+  route("post", "/api/vocabulary/:id/easier", async (req) => easierOwnExample(await learnerOf(req), routeId(req.params.id), req.body?.clientRequestId, req.body?.inputTokens));
   route("get", "/api/review", async (req) => ownReviewQueue(
     await learnerOf(req),
     new Date(),
@@ -138,18 +144,18 @@ export function mountLearnerBusinessRoutes(app: express.Express) {
     const learner = await learnerOf(req);
     if (req.body?.formal === true) {
       const recallAbility = req.body?.recallAbility === "recognize" ? "recognize" : "recall";
-      return rateOwnWord(learner, req.params.id, ratingOf(req.body?.rating), recallAbility, req.body?.clientRequestId, req.body?.progress);
+      return rateOwnWord(learner, routeId(req.params.id), ratingOf(req.body?.rating), recallAbility, req.body?.clientRequestId, req.body?.progress);
     }
-    return practiceOwnWord(learner, req.params.id, ratingOf(req.body?.rating), req.body?.clientRequestId);
+    return practiceOwnWord(learner, routeId(req.params.id), ratingOf(req.body?.rating), req.body?.clientRequestId);
   });
   route("post", "/api/review/:id/rate", async (req) => {
     const recallAbility = req.body?.recallAbility === "recognize" ? "recognize" : "recall";
-    return rateOwnWord(await learnerOf(req), req.params.id, ratingOf(req.body?.rating), recallAbility, req.body?.clientRequestId, req.body?.progress);
+    return rateOwnWord(await learnerOf(req), routeId(req.params.id), ratingOf(req.body?.rating), recallAbility, req.body?.clientRequestId, req.body?.progress);
   });
   route("get", "/api/library", async (req) => ownLibrary(await learnerOf(req)));
   route("get", "/api/stats", async (req) => ownStats(await learnerOf(req)));
-  route("post", "/api/quiz/:id/answer", async (req) => answerOwnQuestion(await learnerOf(req), req.params.id, Number(req.body?.selected)));
-  route("post", "/api/quiz/:id/simpler", async (req) => simplerOwnQuestion(await learnerOf(req), req.params.id, req.body?.clientRequestId, req.body?.inputTokens));
+  route("post", "/api/quiz/:id/answer", async (req) => answerOwnQuestion(await learnerOf(req), routeId(req.params.id), Number(req.body?.selected)));
+  route("post", "/api/quiz/:id/simpler", async (req) => simplerOwnQuestion(await learnerOf(req), routeId(req.params.id), req.body?.clientRequestId, req.body?.inputTokens));
   route("post", "/api/sessions", async (req) => addOwnSession(await learnerOf(req), req.body?.lessonId || null, String(req.body?.module || "lesson"), Number(req.body?.minutes || 0)));
   route("post", "/api/tts", async (req) => {
     await learnerOf(req);

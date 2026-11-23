@@ -99,7 +99,7 @@ export function getAuth() {
         if (level === "error") console.error(text);
       },
     },
-  });
+  }) as unknown as NonNullable<typeof auth>;
   return auth;
 }
 
@@ -112,7 +112,7 @@ export async function createPrivateTestAccount(input: { email: string; password:
     email: input.email,
     name: input.name,
     emailVerified: true,
-  });
+  }, { method: "email-password" });
   await context.internalAdapter.createAccount({
     userId: user.id,
     providerId: "credential",
