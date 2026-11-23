@@ -82,6 +82,13 @@ a.choice:focus-visible, a.text-button:focus-visible, a.rd-pill:focus-visible {
   z-index: 20;
 }
 .skip:focus { top: 12px; }
+.boot-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  color: var(--muted);
+}
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: var(--sidebar) 1fr; }
 .sidebar {
   position: sticky;

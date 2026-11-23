@@ -5,6 +5,11 @@ export function selectAccessMode(protectedFlag: boolean, healthOk: boolean) {
   return healthOk ? "protected" as const : "local" as const;
 }
 
+export function accessAfterProbe(protectedFlag: boolean, outcome: "ok" | "unavailable" | "network") {
+  if (outcome === "network") return "protected" as const;
+  return selectAccessMode(protectedFlag, outcome === "ok");
+}
+
 export function protectedRuntimeRequested() {
   return typeof __LAB_PROTECTED_RUNTIME__ === "boolean" && __LAB_PROTECTED_RUNTIME__;
 }
@@ -16,9 +21,10 @@ export async function multiUserRuntime() {
   if (detected != null) return detected;
   try {
     const response = await fetch("/api/user-runtime/health", { credentials: "include" });
-    detected = selectAccessMode(false, response.ok && await response.text() === "{\"ok\":true}") === "protected";
+    const outcome = response.ok && await response.text() === "{\"ok\":true}" ? "ok" : "unavailable";
+    detected = accessAfterProbe(false, outcome) === "protected";
   } catch {
-    detected = false;
+    detected = accessAfterProbe(false, "network") === "protected";
   }
   return detected;
 }

@@ -1,5 +1,6 @@
 <template>
-  <router-view v-if="standalone" />
+  <div v-if="!settled" class="boot-screen" role="status" aria-live="polite">正在确认登录</div>
+  <router-view v-else-if="standalone" />
   <div v-else class="app-shell">
     <a class="skip" href="#main">跳到内容</a>
     <aside class="sidebar">
@@ -46,12 +47,14 @@ import { useRoute, useRouter } from "vue-router";
 import { BarChart3, BookOpen, CalendarDays, FileText, Headphones, History, Library, RotateCcw, Settings } from "lucide-vue-next";
 import { api } from "./api";
 import { authClient } from "./lib/authClient";
+import { multiUserRuntime } from "./lib/runtimeMode";
 import { applyTheme, useAppStore, watchSystemTheme } from "./stores/app";
 
 const route = useRoute();
 const router = useRouter();
 const store = useAppStore();
 const sessionEmail = ref("");
+const settled = ref(false);
 const standalone = computed(() => route.path.startsWith("/preview") || route.path === "/auth-lab" || route.path === "/login");
 const titles: Record<string, string> = {
   "/": "今天",
@@ -78,8 +81,13 @@ async function setTheme(next: string) {
 }
 
 async function refreshSession() {
-  const session = await authClient.getSession();
-  sessionEmail.value = session.data?.user.email || "";
+  try {
+    const session = await authClient.getSession();
+    sessionEmail.value = session.data?.user.email || "";
+  } catch {
+    sessionEmail.value = "";
+    if (await multiUserRuntime() && route.path !== "/login") await router.replace("/login");
+  }
 }
 
 async function signOut() {
@@ -88,13 +96,17 @@ async function signOut() {
   await router.push("/login");
 }
 
-onMounted(() => {
+onMounted(async () => {
   watchSystemTheme();
-  void refreshSession();
+  await router.isReady();
+  await refreshSession();
+  settled.value = true;
   if (!standalone.value) void store.load();
 });
 
-watch(standalone, (preview) => {
-  if (!preview) void store.load();
+watch(standalone, async (value) => {
+  if (!settled.value) return;
+  await refreshSession();
+  if (!value) void store.load();
 });
 </script>
