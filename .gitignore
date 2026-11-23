@@ -3,6 +3,8 @@ node_modules/
 dist/
 .env
 apps/server/.env
+apps/server/.env.neon.development
+apps/server/src/generated/
 apps/web/dist/
 data/*.db
 data/*.db-journal
