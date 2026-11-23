@@ -88,6 +88,41 @@ function cardData(card: StoredCard) {
 
 class StaleProgress extends Error {}
 
+const reviewAttemptLimit = 3;
+let reviewStarts = 0;
+let beforeFault: (() => Promise<void> | void) | null = null;
+let betweenFault: (() => Promise<void> | void) | null = null;
+let afterFault: (() => Promise<void> | void) | null = null;
+
+export function learnerReviewStarts() {
+  return reviewStarts;
+}
+
+export function resetLearnerReviewProbe() {
+  reviewStarts = 0;
+  beforeFault = null;
+  betweenFault = null;
+  afterFault = null;
+}
+
+export function setLearnerReviewFaults(faults: {
+  before?: () => Promise<void> | void;
+  between?: () => Promise<void> | void;
+  after?: () => Promise<void> | void;
+}) {
+  beforeFault = faults.before ?? null;
+  betweenFault = faults.between ?? null;
+  afterFault = faults.after ?? null;
+}
+
+function isTransientConflict(error: unknown) {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    return ["P2034", "P2028", "P1008"].includes(error.code);
+  }
+  const message = error instanceof Error ? error.message : "";
+  return message.includes("database is locked") || message.includes("SQLITE_BUSY");
+}
+
 async function replay(db: ReviewClient, learnerId: string, requestId: string, vocabularyId: string, mode: string, rating: string) {
   const existing = await db.reviewEvent.findFirst({ where: { userId: learnerId, clientRequestId: requestId } });
   if (!existing) return null;
@@ -149,6 +184,7 @@ async function applyFormal(
   expected: ProgressVersion,
   markKnown: boolean,
 ) {
+  if (beforeFault) await beforeFault();
   if (requestId) {
     const prior = await replay(db, learner.learnerId, requestId, vocabularyId, "formal", rating);
     if (prior) {
@@ -204,6 +240,7 @@ async function applyFormal(
     },
   });
   await mirrorOwnLemma(db, learner.learnerId, vocabularyId);
+  if (afterFault) await afterFault();
   return {
     due: next.due,
     familiarity,
@@ -214,8 +251,40 @@ async function applyFormal(
   };
 }
 
-function isUniqueConflict(error: unknown) {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+async function runReviewTransaction<T>(
+  learnerId: string,
+  requestId: string | null,
+  vocabularyId: string,
+  mode: "formal" | "practice",
+  rating: string,
+  work: (db: ReviewClient) => Promise<T>,
+) {
+  const db = getUserPrisma();
+  for (let attempt = 1; attempt <= reviewAttemptLimit; attempt += 1) {
+    try {
+      return await db.$transaction(async (tx) => {
+        reviewStarts += 1;
+        return work(tx);
+      });
+    } catch (error) {
+      if (requestId) {
+        const prior = await replay(db, learnerId, requestId, vocabularyId, mode, rating);
+        if (prior) return prior as T;
+      }
+      if (error instanceof StaleProgress) {
+        throw new AppError(409, "STALE_PROGRESS", "这个词的复习进度已经变了，这次评分没有写入。请刷新后再决定。");
+      }
+      if (isTransientConflict(error) && attempt < reviewAttemptLimit) {
+        if (betweenFault) await betweenFault();
+        continue;
+      }
+      if (isTransientConflict(error)) {
+        throw new AppError(503, "REVIEW_BUSY", "复习保存遇到短暂冲突，请再试一次。这次没有写入。");
+      }
+      throw error;
+    }
+  }
+  throw new AppError(503, "REVIEW_BUSY", "复习保存遇到短暂冲突，请再试一次。这次没有写入。");
 }
 
 export async function rateOwnWord(
@@ -229,26 +298,15 @@ export async function rateOwnWord(
 ) {
   const requestId = normalizeLearnerRequestId(clientRequestId);
   const expected = readLearnerProgressVersion(expectedValue);
-  const db = getUserPrisma();
-  try {
-    return await db.$transaction((tx) => applyFormal(tx, learner, vocabularyId, rating, recallAbility, requestId, expected, markKnown));
-  } catch (error) {
-    if (error instanceof StaleProgress) {
-      throw new AppError(409, "STALE_PROGRESS", "这个词的复习进度已经变了，这次评分没有写入。请刷新后再决定。");
-    }
-    if (requestId && isUniqueConflict(error)) {
-      const prior = await replay(db, learner.learnerId, requestId, vocabularyId, "formal", rating);
-      if (prior) return prior;
-    }
-    throw error;
-  }
+  return runReviewTransaction(learner.learnerId, requestId, vocabularyId, "formal", rating, (tx) =>
+    applyFormal(tx, learner, vocabularyId, rating, recallAbility, requestId, expected, markKnown),
+  );
 }
 
 export async function practiceOwnWord(learner: VerifiedLearner, vocabularyId: string, rating: RatingName, clientRequestId: unknown) {
   const requestId = normalizeLearnerRequestId(clientRequestId);
-  const db = getUserPrisma();
-  try {
-    return await db.$transaction(async (tx) => {
+  return runReviewTransaction(learner.learnerId, requestId, vocabularyId, "practice", rating, async (tx) => {
+      if (beforeFault) await beforeFault();
       if (requestId) {
         const prior = await replay(tx, learner.learnerId, requestId, vocabularyId, "practice", rating);
         if (prior) return prior;
@@ -277,12 +335,5 @@ export async function practiceOwnWord(learner: VerifiedLearner, vocabularyId: st
         replayed: false,
         note: "这次是提前练习。原定复习时间、正式复习次数和记忆等级都没有改变。",
       };
-    });
-  } catch (error) {
-    if (requestId && isUniqueConflict(error)) {
-      const prior = await replay(db, learner.learnerId, requestId, vocabularyId, "practice", rating);
-      if (prior) return prior;
-    }
-    throw error;
-  }
+  });
 }
