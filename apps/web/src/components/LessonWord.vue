@@ -32,6 +32,7 @@
         :loading="loading"
         :error="error"
         :mark="mark"
+        :mark-busy="markBusy"
         @speak="speak"
         @mark="onMark"
         @explain="explain"
@@ -47,7 +48,7 @@ import BlurText from "../preview/BlurText.vue"
 import ReaderNotes from "../preview/ReaderNotes.vue"
 import { useExplanation } from "../preview/explain"
 import { api } from "../api"
-import { withReviewRequest } from "../lib/reviewRequest"
+import { progressStamp, withReviewRequest } from "../lib/reviewRequest"
 import { useSpeech } from "../composables/useSpeech"
 import type { Word } from "../stores/app"
 import "../preview/reader.css"
@@ -58,6 +59,7 @@ const rates = [0.8, 1, 1.2]
 const rate = ref(1)
 const clear = ref(false)
 const mark = ref<"" | "known" | "again">(props.word.knownAlready ? "known" : "")
+const markBusy = ref(false)
 const message = ref("")
 const voice = ref("浏览器语音，尚未播放")
 const speech = useSpeech()
@@ -85,22 +87,30 @@ async function speak(text: string) {
 }
 
 async function onMark(value: "known" | "again") {
-  if (value === "known") {
-    await withReviewRequest(`known:${props.word.id}`, {}, (body) =>
-      api(`/api/vocabulary/${props.word.id}/known`, { method: "POST", body: JSON.stringify(body) }),
-    )
-    mark.value = "known"
-    message.value = "已记为认识。后面的新课不会再把它当新词。"
-  } else {
-    await withReviewRequest(`formal:${props.word.id}`, { rating: "hard", recallAbility: "recognize" }, (body) =>
-      api(`/api/review/${props.word.id}/rate`, {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-    )
-    mark.value = "again"
-    message.value = "已记为需要加强，复习会来得更早。"
+  if (markBusy.value) return
+  markBusy.value = true
+  try {
+    if (value === "known") {
+      await withReviewRequest(`known:${props.word.id}`, { progress: progressStamp(props.word) }, (body) =>
+        api(`/api/vocabulary/${props.word.id}/known`, { method: "POST", body: JSON.stringify(body) }),
+      )
+      mark.value = "known"
+      message.value = "已记为认识。后面的新课不会再把它当新词。"
+    } else {
+      await withReviewRequest(`formal:${props.word.id}`, { rating: "hard", recallAbility: "recognize", progress: progressStamp(props.word) }, (body) =>
+        api(`/api/review/${props.word.id}/rate`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      )
+      mark.value = "again"
+      message.value = "已记为需要加强，复习会来得更早。"
+    }
+    emit("changed")
+  } catch (err) {
+    message.value = err instanceof Error ? err.message : "这次操作没有写入。"
+  } finally {
+    markBusy.value = false
   }
-  emit("changed")
 }
 </script>

@@ -25,8 +25,8 @@
     </details>
     <div class="row">
       <button class="choice" :disabled="busy" @click="easier">{{ busy ? "正在改写…" : "AI 简化例句" }}</button>
-      <button class="choice" @click="known">我已认识</button>
-      <button class="choice" @click="strengthen">需要加强</button>
+      <button class="choice" :disabled="ratingBusy" @click="known">我已认识</button>
+      <button class="choice" :disabled="ratingBusy" @click="strengthen">需要加强</button>
     </div>
     <p class="audio-state">{{ voiceLabel }}</p>
     <p v-if="message" :class="failed ? 'bad' : 'ok'">{{ message }}</p>
@@ -36,7 +36,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { api } from "../api";
-import { withReviewRequest } from "../lib/reviewRequest";
+import { progressStamp, withReviewRequest } from "../lib/reviewRequest";
 import { useSpeech } from "../composables/useSpeech";
 import type { Word } from "../stores/app";
 
@@ -46,6 +46,7 @@ const speech = useSpeech();
 const message = ref("");
 const failed = ref(false);
 const busy = ref(false);
+const ratingBusy = ref(false);
 const voiceLabel = computed(() => speech.sourceLabel.value.replace("当前语音：", "") || "尚未播放");
 
 async function easier() {
@@ -69,21 +70,37 @@ async function easier() {
 }
 
 async function known() {
-  await withReviewRequest(`known:${props.word.id}`, {}, (body) =>
-    api(`/api/vocabulary/${props.word.id}/known`, { method: "POST", body: JSON.stringify(body) }),
-  );
-  message.value = "已记为认识。后面的新课不会再把它当新词。";
-  emit("changed");
+  if (ratingBusy.value) return;
+  ratingBusy.value = true;
+  try {
+    await withReviewRequest(`known:${props.word.id}`, { progress: progressStamp(props.word) }, (body) =>
+      api(`/api/vocabulary/${props.word.id}/known`, { method: "POST", body: JSON.stringify(body) }),
+    );
+    message.value = "已记为认识。后面的新课不会再把它当新词。";
+    emit("changed");
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : "这次操作没有写入。";
+  } finally {
+    ratingBusy.value = false;
+  }
 }
 
 async function strengthen() {
-  await withReviewRequest(`formal:${props.word.id}`, { rating: "hard", recallAbility: "recognize" }, (body) =>
-    api(`/api/review/${props.word.id}/rate`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
-  );
-  message.value = "已记为需要加强，复习会来得更早。";
-  emit("changed");
+  if (ratingBusy.value) return;
+  ratingBusy.value = true;
+  try {
+    await withReviewRequest(`formal:${props.word.id}`, { rating: "hard", recallAbility: "recognize", progress: progressStamp(props.word) }, (body) =>
+      api(`/api/review/${props.word.id}/rate`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    );
+    message.value = "已记为需要加强，复习会来得更早。";
+    emit("changed");
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : "这次评分没有写入。";
+  } finally {
+    ratingBusy.value = false;
+  }
 }
 </script>

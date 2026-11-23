@@ -18,8 +18,8 @@
       </div>
       <div class="rd-tools" style="margin-top: 16px">
         <button class="rd-pill primary" type="button" :disabled="loading" @click="$emit('explain')">{{ explainLabel }}</button>
-        <button class="rd-pill" type="button" :aria-pressed="mark === 'known'" @click="$emit('mark', 'known')">我已认识</button>
-        <button class="rd-pill" type="button" :aria-pressed="mark === 'again'" @click="$emit('mark', 'again')">需要加强</button>
+        <button class="rd-pill" type="button" :disabled="markBusy" :aria-pressed="mark === 'known'" @click="$emit('mark', 'known')">我已认识</button>
+        <button class="rd-pill" type="button" :disabled="markBusy" :aria-pressed="mark === 'again'" @click="$emit('mark', 'again')">需要加强</button>
       </div>
       <p v-if="error" class="rd-status" role="status">{{ error }}</p>
       <slot />
@@ -46,8 +46,8 @@
       </div>
       <div class="rd-tools" style="margin-top: 16px">
         <button class="rd-pill primary" type="button" :disabled="loading || source === 'cache' || source === 'live'" @click="$emit('explain')">{{ explainLabel }}</button>
-        <button class="rd-pill" type="button" :aria-pressed="mark === 'known'" @click="$emit('mark', 'known')">我已认识</button>
-        <button class="rd-pill" type="button" :aria-pressed="mark === 'again'" @click="$emit('mark', 'again')">需要加强</button>
+        <button class="rd-pill" type="button" :disabled="markBusy" :aria-pressed="mark === 'known'" @click="$emit('mark', 'known')">我已认识</button>
+        <button class="rd-pill" type="button" :disabled="markBusy" :aria-pressed="mark === 'again'" @click="$emit('mark', 'again')">需要加强</button>
       </div>
       <p v-if="error" class="rd-status" role="status">{{ error }}</p>
       <p v-if="mark && !markNote" class="rd-status" role="status">{{ mark === "known" ? "已在这次预览里记为认识。" : "已标成需要加强。" }}没有新建复习记录，重复点击也不会再加一条。</p>
@@ -113,6 +113,7 @@ const props = defineProps<{
   columnScroll?: boolean
   summary?: { pronunciation: string; partOfSpeech: string; definition: string; usage: string }
   markNote?: string
+  markBusy?: boolean
 }>()
 defineEmits<{ speak: [text: string]; mark: [value: "known" | "again"]; explain: [] }>()
 const sourceLabel = computed(() => {

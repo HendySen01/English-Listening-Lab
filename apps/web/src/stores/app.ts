@@ -34,6 +34,12 @@ export type Word = {
   knownAlready: boolean;
   familiarity: string;
   reps: number;
+  due: string | null;
+  lastReview: string | null;
+  lapses: number;
+  state: number;
+  correctCount: number;
+  incorrectCount: number;
   intervals: { again: number; hard: number; good: number; easy: number } | null;
 };
 

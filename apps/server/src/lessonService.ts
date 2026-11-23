@@ -432,6 +432,11 @@ export function presentLesson(lesson: NonNullable<Awaited<ReturnType<typeof find
       familiarity: word.progress?.familiarity ?? "new",
       reps: word.progress?.reps ?? 0,
       due: word.progress?.due ?? null,
+      lastReview: word.progress?.lastReview ?? null,
+      lapses: word.progress?.lapses ?? 0,
+      state: word.progress?.state ?? 0,
+      correctCount: word.progress?.correctCount ?? 0,
+      incorrectCount: word.progress?.incorrectCount ?? 0,
       intervals: word.progress ? previewDays(storedFrom(word.progress), new Date()) : null,
     })),
     questions: lesson.questions.map((question) => {
@@ -505,10 +510,66 @@ export function normalizeRequestId(value: unknown) {
   return text;
 }
 
-class ReviewConflict extends Error {}
+class StaleProgress extends Error {}
 
 function isUniqueConflict(error: unknown) {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+function isTransientConflict(error: unknown) {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && ["P2034", "P2028", "P1008"].includes(error.code)) return true;
+  const message = error instanceof Error ? error.message : "";
+  return message.includes("database is locked") || message.includes("SQLITE_BUSY");
+}
+
+type ProgressVersion = {
+  due: Date;
+  reps: number;
+  lapses: number;
+  state: number;
+  lastReview: Date | null;
+  correctCount: number;
+  incorrectCount: number;
+};
+
+function readInstant(value: unknown) {
+  if (value == null || value === "") return null;
+  const date = value instanceof Date ? value : new Date(typeof value === "number" ? value : String(value));
+  if (Number.isNaN(date.getTime())) throw new AppError(400, "BAD_PROGRESS_VERSION", "复习进度时间不正确。请刷新后再评分。");
+  return date;
+}
+
+function readCount(value: unknown) {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new AppError(400, "BAD_PROGRESS_VERSION", "缺少当前复习进度，请刷新后再评分。");
+  }
+  return value;
+}
+
+export function readProgressVersion(value: unknown): ProgressVersion {
+  if (!value || typeof value !== "object") throw new AppError(400, "BAD_PROGRESS_VERSION", "缺少当前复习进度，请刷新后再评分。");
+  const row = value as Record<string, unknown>;
+  const due = readInstant(row.due);
+  if (!due) throw new AppError(400, "BAD_PROGRESS_VERSION", "缺少当前复习进度，请刷新后再评分。");
+  return {
+    due,
+    reps: readCount(row.reps),
+    lapses: readCount(row.lapses),
+    state: readCount(row.state),
+    lastReview: readInstant(row.lastReview),
+    correctCount: readCount(row.correctCount),
+    incorrectCount: readCount(row.incorrectCount),
+  };
+}
+
+function sameProgress(progress: ProgressVersion, expected: ProgressVersion) {
+  return progress.due.getTime() === expected.due.getTime()
+    && progress.reps === expected.reps
+    && progress.lapses === expected.lapses
+    && progress.state === expected.state
+    && (progress.lastReview?.getTime() ?? null) === (expected.lastReview?.getTime() ?? null)
+    && progress.correctCount === expected.correctCount
+    && progress.incorrectCount === expected.incorrectCount;
 }
 
 function familiarityFor(rating: RatingName) {
@@ -539,28 +600,35 @@ export async function applyFormalReview(
   rating: RatingName,
   recallAbility: "recognize" | "recall",
   clientRequestId: string | null,
+  expected: ProgressVersion,
   markKnown = false,
 ) {
-  if (markKnown) await db.vocabulary.update({ where: { id: vocabularyId }, data: { knownAlready: true } });
   if (clientRequestId) {
     const replay = await replayReview(db, clientRequestId, vocabularyId, "formal", rating);
-    if (replay) return replay;
+    if (replay) {
+      if (markKnown) await db.vocabulary.update({ where: { id: vocabularyId }, data: { knownAlready: true } });
+      return replay;
+    }
   }
   const progress = await db.wordProgress.findUnique({ where: { vocabularyId } });
   if (!progress) throw new AppError(404, "NOT_FOUND", "找不到这个词的复习记录");
+  if (!sameProgress(progress, expected)) {
+    throw new StaleProgress();
+  }
+  if (markKnown) await db.vocabulary.update({ where: { id: vocabularyId }, data: { knownAlready: true } });
   const next = schedule(storedFrom(progress), rating);
   const correct = rating === "good" || rating === "easy";
   const familiarity = familiarityFor(rating);
   const updated = await db.wordProgress.updateMany({
     where: {
       vocabularyId,
-      due: progress.due,
-      reps: progress.reps,
-      lapses: progress.lapses,
-      state: progress.state,
-      correctCount: progress.correctCount,
-      incorrectCount: progress.incorrectCount,
-      lastReview: progress.lastReview,
+      due: expected.due,
+      reps: expected.reps,
+      lapses: expected.lapses,
+      state: expected.state,
+      correctCount: expected.correctCount,
+      incorrectCount: expected.incorrectCount,
+      lastReview: expected.lastReview,
     },
     data: {
       ...cardData(next),
@@ -570,7 +638,7 @@ export async function applyFormalReview(
       recallAbility,
     },
   });
-  if (updated.count !== 1) throw new ReviewConflict();
+  if (updated.count !== 1) throw new StaleProgress();
   await db.reviewEvent.create({
     data: {
       vocabularyId,
@@ -598,22 +666,26 @@ export async function rateWord(
   rating: RatingName,
   recallAbility: "recognize" | "recall",
   clientRequestId?: unknown,
-  options?: { markKnown?: boolean },
+  options?: { markKnown?: boolean; expected?: unknown },
 ) {
   const requestId = normalizeRequestId(clientRequestId);
-  for (let attempt = 0; attempt < 5; attempt += 1) {
+  const expected = readProgressVersion(options?.expected);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      return await prisma.$transaction((tx) => applyFormalReview(tx, vocabularyId, rating, recallAbility, requestId, options?.markKnown === true));
+      return await prisma.$transaction((tx) => applyFormalReview(tx, vocabularyId, rating, recallAbility, requestId, expected, options?.markKnown === true));
     } catch (error) {
-      if (error instanceof ReviewConflict) continue;
+      if (error instanceof StaleProgress) {
+        throw new AppError(409, "STALE_PROGRESS", "这个词的复习进度已经变了，这次评分没有写入。请刷新后再决定。");
+      }
       if (requestId && isUniqueConflict(error)) {
         const replay = await replayReview(prisma, requestId, vocabularyId, "formal", rating);
         if (replay) return replay;
       }
+      if (isTransientConflict(error) && attempt < 2) continue;
       throw error;
     }
   }
-  throw new AppError(409, "CONCURRENT_REVIEW", "这个词的复习正在同时保存，请再试一次。这次没有重复计分。");
+  throw new AppError(503, "REVIEW_BUSY", "复习保存遇到短暂冲突，请再试一次。这次没有写入。");
 }
 
 export async function practiceWord(vocabularyId: string, rating: RatingName, clientRequestId?: unknown) {
@@ -655,8 +727,8 @@ export async function practiceWord(vocabularyId: string, rating: RatingName, cli
   }
 }
 
-export async function markKnown(vocabularyId: string, clientRequestId?: unknown) {
-  return rateWord(vocabularyId, "easy", "recall", clientRequestId, { markKnown: true });
+export async function markKnown(vocabularyId: string, clientRequestId?: unknown, expected?: unknown) {
+  return rateWord(vocabularyId, "easy", "recall", clientRequestId, { markKnown: true, expected });
 }
 
 export async function easierExample(vocabularyId: string, confirmCost: boolean) {
@@ -868,6 +940,10 @@ export async function reviewQueue(now = new Date(), filter = "due", query = "") 
       reps: row.reps,
       due: row.due,
       lastReview: row.lastReview,
+      lapses: row.lapses,
+      state: row.state,
+      correctCount: row.correctCount,
+      incorrectCount: row.incorrectCount,
       knownAlready: row.vocabulary.knownAlready,
       intervals: previewDays(storedFrom(row), now),
     }));

@@ -10,10 +10,10 @@
     </template>
     <label class="row"><input type="checkbox" v-model="recognizeOnly" /> 我只是认得，还不能自己用</label>
     <div class="row">
-      <button class="choice" @click="rate('again')">忘记 · {{ item.intervals?.again ?? "—" }} 天</button>
-      <button class="choice" @click="rate('hard')">困难 · {{ item.intervals?.hard ?? "—" }} 天</button>
-      <button class="choice" @click="rate('good')">记得 · {{ item.intervals?.good ?? "—" }} 天</button>
-      <button class="choice" @click="rate('easy')">非常熟悉 · {{ item.intervals?.easy ?? "—" }} 天</button>
+      <button class="choice" :disabled="ratingBusy" @click="rate('again')">忘记 · {{ item.intervals?.again ?? "—" }} 天</button>
+      <button class="choice" :disabled="ratingBusy" @click="rate('hard')">困难 · {{ item.intervals?.hard ?? "—" }} 天</button>
+      <button class="choice" :disabled="ratingBusy" @click="rate('good')">记得 · {{ item.intervals?.good ?? "—" }} 天</button>
+      <button class="choice" :disabled="ratingBusy" @click="rate('easy')">非常熟悉 · {{ item.intervals?.easy ?? "—" }} 天</button>
     </div>
   </div>
 </template>
@@ -21,21 +21,28 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { api } from "../api";
-import { withReviewRequest } from "../lib/reviewRequest";
+import { progressStamp, withReviewRequest } from "../lib/reviewRequest";
 
 const props = defineProps<{ item: any }>();
 const emit = defineEmits<{ done: [] }>();
 const show = ref(false);
 const recognizeOnly = ref(false);
+const ratingBusy = ref(false);
 
 async function rate(rating: string) {
+  if (ratingBusy.value) return;
+  ratingBusy.value = true;
   const recallAbility = recognizeOnly.value ? "recognize" : "recall";
-  await withReviewRequest(`formal:${props.item.id}`, { rating, recallAbility }, (body) =>
-    api(`/api/review/${props.item.id}/rate`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
-  );
-  emit("done");
+  try {
+    await withReviewRequest(`formal:${props.item.id}`, { rating, recallAbility, progress: progressStamp(props.item) }, (body) =>
+      api(`/api/review/${props.item.id}/rate`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    );
+    emit("done");
+  } finally {
+    ratingBusy.value = false;
+  }
 }
 </script>

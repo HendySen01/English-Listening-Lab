@@ -108,20 +108,39 @@ const first = lesson.questions[0];
 const graded = await answerQuestion(first.id, first.answerIndex);
 check("提交后有解析", Boolean(graded?.explanationZh && graded.answerIndex === first.answerIndex));
 const { AppError } = await import("./errors.ts");
-const rated = await rateWord(view.words[0].id, "good", "recall");
+async function versionOf(vocabularyId: string) {
+  const row = await prisma.wordProgress.findUniqueOrThrow({ where: { vocabularyId } });
+  return {
+    due: row.due,
+    reps: row.reps,
+    lapses: row.lapses,
+    state: row.state,
+    lastReview: row.lastReview,
+    correctCount: row.correctCount,
+    incorrectCount: row.incorrectCount,
+  };
+}
+const firstVersion = await versionOf(view.words[0].id);
+const rated = await rateWord(view.words[0].id, "good", "recall", null, { expected: firstVersion });
 check("复习日期晚于现在", new Date(rated.due).getTime() > Date.now() - 1000);
 const before = new Date(rated.due).getTime();
 const practiced = await practiceWord(view.words[0].id, "again");
 check("提前练习不改变排程", new Date(practiced.due).getTime() === before && practiced.changedSchedule === false);
-const formal = await rateWord(view.words[0].id, "easy", "recall");
+const afterPractice = await versionOf(view.words[0].id);
+const formal = await rateWord(view.words[0].id, "easy", "recall", null, { expected: afterPractice });
 check("正式复习会更新排程", formal.changedSchedule === true && new Date(formal.due).getTime() !== before);
+const nextVersion = await versionOf(view.words[0].id);
+const nextReview = await rateWord(view.words[0].id, "hard", "recall", "next-review-0001", { expected: nextVersion });
+const nextProgress = await prisma.wordProgress.findUnique({ where: { vocabularyId: view.words[0].id } });
+check("刷新后的进度可以再次正式复习", nextReview.replayed === false && nextProgress?.reps === 3);
 const legacyEvents = await prisma.reviewEvent.count({ where: { clientRequestId: null } });
 check("没有请求号的记录仍可留下", legacyEvents >= 2);
 
 const idemWord = view.words[1];
+const idemSeen = await versionOf(idemWord.id);
 const idemKey = "idem-good-0001";
-const idemFirst = await rateWord(idemWord.id, "good", "recall", idemKey);
-const idemAgain = await rateWord(idemWord.id, "good", "recall", idemKey);
+const idemFirst = await rateWord(idemWord.id, "good", "recall", idemKey, { expected: idemSeen });
+const idemAgain = await rateWord(idemWord.id, "good", "recall", idemKey, { expected: idemSeen });
 const idemCount = await prisma.reviewEvent.count({ where: { clientRequestId: idemKey } });
 const idemProgress = await prisma.wordProgress.findUnique({ where: { vocabularyId: idemWord.id } });
 check(
@@ -130,12 +149,20 @@ check(
 );
 let reused = false;
 try {
-  await rateWord(idemWord.id, "easy", "recall", idemKey);
+  await rateWord(idemWord.id, "easy", "recall", idemKey, { expected: idemSeen });
 } catch (error) {
   reused = error instanceof AppError && error.code === "REQUEST_REUSED";
 }
 const idemAfterReject = await prisma.reviewEvent.count({ where: { vocabularyId: idemWord.id, mode: "formal" } });
 check("同一请求号不能改记另一次评分", reused && idemAfterReject === 1);
+let stale = false;
+try {
+  await rateWord(idemWord.id, "hard", "recall", "stale-hard-00001", { expected: idemSeen });
+} catch (error) {
+  stale = error instanceof AppError && error.code === "STALE_PROGRESS";
+}
+const staleProgress = await prisma.wordProgress.findUnique({ where: { vocabularyId: idemWord.id } });
+check("过期进度不会记成下一次复习", stale && staleProgress?.reps === 1 && staleProgress.due.getTime() === idemProgress?.due.getTime());
 
 const practiceWordId = view.words[2].id;
 const practiceBefore = await prisma.wordProgress.findUnique({ where: { vocabularyId: practiceWordId } });
@@ -146,8 +173,22 @@ const practiceAfter = await prisma.wordProgress.findUnique({ where: { vocabulary
 const practiceCount = await prisma.reviewEvent.count({ where: { clientRequestId: practiceKey } });
 check(
   "重复的提前练习不改变排程",
-  practiceReplay.replayed === true && practiceReplay.changedSchedule === false && practiceCount === 1 && practiceAfter?.reps === practiceBefore?.reps && practiceAfter?.due.getTime() === practiceBefore?.due.getTime(),
+  practiceReplay.replayed === true && practiceReplay.changedSchedule === false && practiceCount === 1 && practiceAfter?.reps === practiceBefore?.reps &&   practiceAfter?.due.getTime() === practiceBefore?.due.getTime(),
 );
+const { markKnown } = await import("./lessonService.ts");
+const knownVersion = await versionOf(practiceWordId);
+const known = await markKnown(practiceWordId, "known-easy-00001", knownVersion);
+const knownRow = await prisma.vocabulary.findUnique({ where: { id: practiceWordId } });
+const knownProgress = await prisma.wordProgress.findUnique({ where: { vocabularyId: practiceWordId } });
+check("已认识只按当前进度记一次", known.replayed === false && knownRow?.knownAlready === true && knownProgress?.reps === (practiceBefore?.reps ?? 0) + 1);
+let knownStale = false;
+try {
+  await markKnown(practiceWordId, "known-easy-00002", knownVersion);
+} catch (error) {
+  knownStale = error instanceof AppError && error.code === "STALE_PROGRESS";
+}
+const knownAfter = await prisma.wordProgress.findUnique({ where: { vocabularyId: practiceWordId } });
+check("过期的已认识请求不会再计分", knownStale && knownAfter?.reps === knownProgress?.reps);
 
 const rollbackWord = view.words[3];
 const rollbackBefore = await prisma.wordProgress.findUnique({ where: { vocabularyId: rollbackWord.id } });
@@ -155,7 +196,7 @@ const rollbackEvents = await prisma.reviewEvent.count({ where: { vocabularyId: r
 let rollbackThrew = false;
 try {
   await prisma.$transaction(async (tx) => {
-    await applyFormalReview(tx, rollbackWord.id, "good", "recall", "rollback-request-01", false);
+    await applyFormalReview(tx, rollbackWord.id, "good", "recall", "rollback-request-01", await versionOf(rollbackWord.id), false);
     rollbackThrew = true;
     throw new Error("rollback-test");
   });
@@ -170,27 +211,35 @@ check(
 );
 
 const concurrentWord = view.words[4];
-const concurrentBefore = await prisma.wordProgress.findUnique({ where: { vocabularyId: concurrentWord.id } });
-await Promise.all([
-  rateWord(concurrentWord.id, "again", "recall", "concurrent-again-01"),
-  rateWord(concurrentWord.id, "good", "recall", "concurrent-good-001"),
-  rateWord(concurrentWord.id, "easy", "recall", "concurrent-easy-001"),
+const concurrentBefore = await versionOf(concurrentWord.id);
+const concurrentResults = await Promise.allSettled([
+  rateWord(concurrentWord.id, "again", "recall", "concurrent-again-01", { expected: concurrentBefore }),
+  rateWord(concurrentWord.id, "good", "recall", "concurrent-good-001", { expected: concurrentBefore }),
+  rateWord(concurrentWord.id, "easy", "recall", "concurrent-easy-001", { expected: concurrentBefore }),
 ]);
+const concurrentWins = concurrentResults.filter((item) => item.status === "fulfilled").length;
+const concurrentStale = concurrentResults.filter((item) => item.status === "rejected" && item.reason instanceof AppError && item.reason.code === "STALE_PROGRESS").length;
 const concurrentAfter = await prisma.wordProgress.findUnique({ where: { vocabularyId: concurrentWord.id } });
 const concurrentEvents = await prisma.reviewEvent.count({ where: { vocabularyId: concurrentWord.id, mode: "formal" } });
 check(
-  "并发评分各保存一次",
-  concurrentEvents === 3 && concurrentAfter?.reps === (concurrentBefore?.reps ?? 0) + 3 && concurrentAfter?.correctCount === (concurrentBefore?.correctCount ?? 0) + 2 && concurrentAfter?.incorrectCount === (concurrentBefore?.incorrectCount ?? 0) + 1,
+  "并发评分只有当前进度的一次成功",
+  concurrentWins === 1 && concurrentStale === 2 && concurrentEvents === 1 && concurrentAfter?.reps === concurrentBefore.reps + 1,
 );
 
 let badRequest = false;
 try {
-  await rateWord(view.words[5].id, "good", "recall", "short");
+  await rateWord(view.words[5].id, "good", "recall", "short", { expected: await versionOf(view.words[5].id) });
 } catch (error) {
   badRequest = error instanceof AppError && error.status === 400;
 }
+let missingVersion = false;
+try {
+  await rateWord(view.words[5].id, "good", "recall", "missing-version-01");
+} catch (error) {
+  missingVersion = error instanceof AppError && error.code === "BAD_PROGRESS_VERSION";
+}
 const untouched = await prisma.reviewEvent.count({ where: { vocabularyId: view.words[5].id } });
-check("无效请求号不会写入复习", badRequest && untouched === 0);
+check("无效请求号或缺少进度不会写入复习", badRequest && missingVersion && untouched === 0);
 check("6 个词的预计时间是 60 分钟", estimateMinutes(6, 0, true) === 60);
 check("20 个词明显更久", estimateMinutes(20, 0, true) > estimateMinutes(6, 0, true));
 
@@ -210,6 +259,35 @@ check("难度已变成 B1", next.difficulty === "B1");
 check("不是同一节课", next.id !== lesson.id);
 check("改设置后今天的课不变", (await ensureLesson(today)).newWordCount === 6);
 check("第二次生成仍无 AI", (await prisma.aIUsageRecord.count()) === 0);
+
+const upgradeFile = path.join(root, "data", "upgrade-test.db");
+if (fs.existsSync(upgradeFile)) fs.rmSync(upgradeFile);
+const { DatabaseSync } = await import("node:sqlite");
+const oldDb = new DatabaseSync(upgradeFile);
+oldDb.exec(`CREATE TABLE ReviewEvent (
+  id TEXT PRIMARY KEY,
+  vocabularyId TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  rating TEXT NOT NULL,
+  dueBefore INTEGER NOT NULL,
+  dueAfter INTEGER NOT NULL,
+  changedSchedule BOOLEAN NOT NULL DEFAULT 0,
+  createdAt INTEGER NOT NULL
+)`);
+oldDb.prepare("INSERT INTO ReviewEvent (id, vocabularyId, mode, rating, dueBefore, dueAfter, changedSchedule, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run("old-event", "word-1", "formal", "good", 1, 2, 1, 3);
+oldDb.close();
+execSync(`node scripts/sqlite/add-review-request-id.mjs ${upgradeFile}`, { cwd: path.join(root, "apps/server"), stdio: "inherit" });
+const upgraded = new DatabaseSync(upgradeFile);
+const upgradedColumns = upgraded.prepare("PRAGMA table_info(ReviewEvent)").all().map((column) => column.name);
+const kept = upgraded.prepare("SELECT rating, dueBefore, dueAfter FROM ReviewEvent WHERE id = ?").get("old-event");
+upgraded.prepare("INSERT INTO ReviewEvent (id, vocabularyId, mode, rating, dueBefore, dueAfter, changedSchedule, createdAt, clientRequestId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)").run("old-event-2", "word-1", "formal", "hard", 2, 3, 1, 4);
+const nullIds = upgraded.prepare("SELECT COUNT(*) AS n FROM ReviewEvent WHERE clientRequestId IS NULL").get().n;
+upgraded.close();
+fs.rmSync(upgradeFile);
+check(
+  "旧 SQLite 可以加请求号且不改历史",
+  upgradedColumns.includes("clientRequestId") && kept.rating === "good" && kept.dueBefore === 1 && kept.dueAfter === 2 && nullIds === 2,
+);
 
 const report = {
   passed: failures.length === 0,

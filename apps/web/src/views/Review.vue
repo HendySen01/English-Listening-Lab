@@ -27,10 +27,10 @@
         </template>
         <label class="rd-note"><input type="checkbox" v-model="formal" /> 将本次计入正式复习。不勾选时只做提前练习，不改下一次时间。</label>
         <div class="rd-tools">
-          <button class="rd-pill" type="button" @click="submit('again')">忘记</button>
-          <button class="rd-pill" type="button" @click="submit('hard')">困难</button>
-          <button class="rd-pill" type="button" @click="submit('good')">记得</button>
-          <button class="rd-pill primary" type="button" @click="submit('easy')">非常熟悉</button>
+          <button class="rd-pill" type="button" :disabled="ratingBusy" @click="submit('again')">忘记</button>
+          <button class="rd-pill" type="button" :disabled="ratingBusy" @click="submit('hard')">困难</button>
+          <button class="rd-pill" type="button" :disabled="ratingBusy" @click="submit('good')">记得</button>
+          <button class="rd-pill primary" type="button" :disabled="ratingBusy" @click="submit('easy')">非常熟悉</button>
         </div>
         <p v-if="feedback" class="rd-status" role="status">{{ feedback }}</p>
         <p v-if="missing" class="rd-note">{{ missing }}</p>
@@ -46,7 +46,7 @@ import { onMounted, onUnmounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { api } from "../api";
 import { formatDue, formatWhen } from "../lib/due";
-import { withReviewRequest } from "../lib/reviewRequest";
+import { progressStamp, withReviewRequest } from "../lib/reviewRequest";
 import "../preview/reader.css";
 import { useStudyClock } from "../composables/useStudyClock";
 useStudyClock("review", () => null);
@@ -65,6 +65,7 @@ const items = ref<any[]>([]);
 const current = ref<any>(null);
 const formal = ref(false);
 const feedback = ref("");
+const ratingBusy = ref(false);
 const missing = ref("");
 const revealed = ref(false);
 const loaded = ref(false);
@@ -93,23 +94,33 @@ async function load() {
   else if (!narrow.value && data.items[0]) open(data.items[0]);
 }
 async function submit(rating: string) {
-  if (!current.value) return;
+  if (!current.value || ratingBusy.value) return;
   if (!revealed.value) {
     missing.value = "先显示答案，再评分。";
     return;
   }
   if (formal.value && !confirm("计入正式复习后，会按这次表现用 FSRS 改写下一次复习时间。继续吗？")) return;
-  const result = await withReviewRequest(
-    `${formal.value ? "formal" : "practice"}:${current.value.id}`,
-    { rating, formal: formal.value },
-    (body) => api<{ note: string; due: string; changedSchedule: boolean }>(`/api/review/${current.value.id}/practice`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
-  );
-  feedback.value = `${result.note} 下次复习：${formatWhen(result.due)}，${formatDue(result.due, new Date())}。`;
-  formal.value = false;
-  await load();
+  ratingBusy.value = true;
+  try {
+    const payload: Record<string, unknown> = { rating, formal: formal.value };
+    if (formal.value) payload.progress = progressStamp(current.value);
+    const result = await withReviewRequest(
+      `${formal.value ? "formal" : "practice"}:${current.value.id}`,
+      payload,
+      (body) => api<{ note: string; due: string; changedSchedule: boolean }>(`/api/review/${current.value.id}/practice`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    );
+    feedback.value = `${result.note} 下次复习：${formatWhen(result.due)}，${formatDue(result.due, new Date())}。`;
+    formal.value = false;
+    await load();
+  } catch (error) {
+    feedback.value = error instanceof Error ? error.message : "这次评分没有写入。";
+    await load();
+  } finally {
+    ratingBusy.value = false;
+  }
 }
 onMounted(async () => {
   const focus = String(route.query.focus || "");

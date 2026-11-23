@@ -43,6 +43,25 @@ function samePayload(saved: Record<string, unknown>, payload: Record<string, unk
   return true;
 }
 
+export function progressStamp(source: {
+  due?: string | number | null;
+  reps?: number;
+  lapses?: number;
+  state?: number;
+  lastReview?: string | number | null;
+  correctCount?: number;
+  incorrectCount?: number;
+}) {
+  return {
+    due: source.due ?? null,
+    reps: source.reps ?? 0,
+    lapses: source.lapses ?? 0,
+    state: source.state ?? 0,
+    lastReview: source.lastReview ?? null,
+    correctCount: source.correctCount ?? 0,
+    incorrectCount: source.incorrectCount ?? 0,
+  };
+}
 export function withReviewRequest<T>(slot: string, payload: Record<string, unknown>, send: (body: Record<string, unknown>) => Promise<T>) {
   const current = inflight.get(slot);
   if (current) return current as Promise<T>;

@@ -64,10 +64,10 @@
         <p>{{ recallWord.pos }} <span v-if="recallWord.ipa">{{ recallWord.ipa }}</span></p>
         <label class="row"><input type="checkbox" v-model="recognizeOnly" /> 我只是认得，还不能自己用</label>
         <div class="row">
-          <button class="choice" @click="submitRating('again')">忘记</button>
-          <button class="choice" @click="submitRating('hard')">困难</button>
-          <button class="choice" @click="submitRating('good')">记得</button>
-          <button class="choice" @click="submitRating('easy')">非常熟悉</button>
+          <button class="choice" :disabled="ratingBusy" @click="submitRating('again')">忘记</button>
+          <button class="choice" :disabled="ratingBusy" @click="submitRating('hard')">困难</button>
+          <button class="choice" :disabled="ratingBusy" @click="submitRating('good')">记得</button>
+          <button class="choice" :disabled="ratingBusy" @click="submitRating('easy')">非常熟悉</button>
         </div>
         <p class="muted" v-if="recallWord.intervals">大约：忘记 {{ recallWord.intervals.again }} 天，困难 {{ recallWord.intervals.hard }} 天，记得 {{ recallWord.intervals.good }} 天，非常熟悉 {{ recallWord.intervals.easy }} 天。这是 FSRS 排出的间隔。</p>
       </div>
@@ -85,7 +85,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { api } from "../api";
-import { withReviewRequest } from "../lib/reviewRequest";
+import { progressStamp, withReviewRequest } from "../lib/reviewRequest";
 import { useAppStore, type Lesson, type Progress } from "../stores/app";
 import LessonWord from "../components/LessonWord.vue";
 import { useStudyClock } from "../composables/useStudyClock";
@@ -102,6 +102,7 @@ const details = ref(false);
 const reviews = ref<any[]>([]);
 const versions = ref<Array<{ id: string; version: number; active: boolean; source: string; sourceLabel: string }>>([]);
 const error = ref("");
+const ratingBusy = ref(false);
 const recognizeOnly = ref(false);
 const steps = [
   { id: "review", label: "复习" },
@@ -158,15 +159,27 @@ async function moveWord(delta: number) {
 }
 
 async function submitRating(rating: string) {
-  if (!recallWord.value) return;
-  await withReviewRequest(`formal:${recallWord.value.id}`, { rating, recallAbility: recognizeOnly.value ? "recognize" : "recall" }, (body) =>
-    api(`/api/review/${recallWord.value.id}/rate`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
-  );
-  recognizeOnly.value = false;
-  await reload();
+  if (!recallWord.value || ratingBusy.value) return;
+  ratingBusy.value = true;
+  try {
+    await withReviewRequest(`formal:${recallWord.value.id}`, {
+      rating,
+      recallAbility: recognizeOnly.value ? "recognize" : "recall",
+      progress: progressStamp(recallWord.value),
+    }, (body) =>
+      api(`/api/review/${recallWord.value.id}/rate`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    );
+    recognizeOnly.value = false;
+    await reload();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "这次评分没有写入。";
+    await reload();
+  } finally {
+    ratingBusy.value = false;
+  }
 }
 
 async function loadVersions() {
