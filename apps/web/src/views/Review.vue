@@ -19,18 +19,23 @@
         <p class="rd-meta">{{ current.pos }} <span v-if="current.ipa" translate="no">{{ current.ipa }}</span></p>
         <p class="rd-copy">上次复习：{{ formatWhen(current.lastReview) }}</p>
         <p class="rd-copy">下次复习：{{ formatWhen(current.due) }} · {{ remain(current.due) }}</p>
-        <button v-if="!revealed" class="rd-pill primary" type="button" @click="revealed = true">显示答案</button>
-        <template v-else>
-          <p class="rd-copy">{{ current.meaningZh }}</p>
-          <p class="rd-sentence" style="font-size: 28px" translate="no">{{ current.example }}</p>
-          <p class="rd-copy">{{ current.exampleZh }}</p>
-        </template>
-        <label class="rd-note"><input type="checkbox" v-model="formal" /> 将本次计入正式复习。不勾选时只做提前练习，不改下一次时间。</label>
-        <div class="rd-tools">
-          <button class="rd-pill" type="button" :disabled="ratingBusy" @click="submit('again')">忘记</button>
-          <button class="rd-pill" type="button" :disabled="ratingBusy" @click="submit('hard')">困难</button>
-          <button class="rd-pill" type="button" :disabled="ratingBusy" @click="submit('good')">记得</button>
-          <button class="rd-pill primary" type="button" :disabled="ratingBusy" @click="submit('easy')">非常熟悉</button>
+        <div class="recall-panel">
+          <div class="recall-answer">
+            <button v-if="!revealed" class="rd-pill primary" type="button" @click="revealed = true">显示答案</button>
+            <p v-if="!revealed" class="rd-note">先看答案，再选择记忆程度。</p>
+          </div>
+          <div v-if="revealed">
+            <p class="rd-copy">{{ current.meaningZh }}</p>
+            <p class="rd-sentence" style="font-size: 28px" translate="no">{{ current.example }}</p>
+            <p class="rd-copy">{{ current.exampleZh }}</p>
+          </div>
+          <label class="formal-check"><input type="checkbox" v-model="formal" /> <span>将本次计入正式复习。不勾选时只做提前练习，不改下一次时间。</span></label>
+        </div>
+        <div class="grade-grid" role="group" aria-label="记忆评分">
+          <button class="rd-pill rate rate-again" type="button" :disabled="ratingBusy" @click="submit('again')">忘记</button>
+          <button class="rd-pill rate rate-hard" type="button" :disabled="ratingBusy" @click="submit('hard')">困难</button>
+          <button class="rd-pill rate rate-good" type="button" :disabled="ratingBusy" @click="submit('good')">记得</button>
+          <button class="rd-pill rate rate-easy" type="button" :disabled="ratingBusy" @click="submit('easy')">非常熟悉</button>
         </div>
         <p v-if="feedback" class="rd-status" role="status">{{ feedback }}</p>
         <p v-if="missing" class="rd-note">{{ missing }}</p>

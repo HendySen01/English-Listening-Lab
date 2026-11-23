@@ -4,7 +4,7 @@
       <h2>{{ day.label }}</h2>
       <div class="card day-card">
         <div class="day-head">
-          <div>
+          <div class="day-copy">
             <p class="home-kicker">
               <span class="badge" v-if="day.primary.active && day.date === days[0].date">今天正在学</span>
               <span class="badge" v-else-if="day.primary.active">这一天选用的版本</span>
@@ -15,7 +15,7 @@
             <p class="muted">{{ day.primary.theme }} · {{ day.primary.newWordCount }} 个词 · {{ stepLabel(day.primary.progress?.step) }}</p>
             <div class="progress-track" aria-hidden="true"><span :style="{ width: progressWidth(day.primary) }"></span></div>
           </div>
-          <div class="row">
+          <div class="day-actions">
             <router-link class="choice active" :to="`/lesson/${day.primary.id}`">继续学习</router-link>
             <button class="choice" type="button" @click="toggle(day.primary.id)">{{ openId === day.primary.id ? "收起详情" : "查看课程详情" }}</button>
           </div>

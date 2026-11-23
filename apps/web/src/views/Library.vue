@@ -68,10 +68,10 @@
           <p class="rd-copy">{{ familiarityLabel(current.familiarity) }} · 已复习 {{ current.reps }} 次</p>
           <p class="rd-copy" v-if="current.due">下次 {{ when(current.due) }} · {{ remain(current.due) }}</p>
           <p class="rd-copy" v-else>还没有复习时间。打开复习不会新建记录。</p>
-          <div class="rd-tools" style="margin-top: 8px">
+          <div class="rd-actions" style="margin-top: 12px">
             <router-link class="rd-pill primary" :to="`/review?focus=${current.id}`">开始复习</router-link>
-            <router-link class="rd-pill" :to="`/review?focus=${current.id}&practice=1`">提前练习</router-link>
-            <router-link v-if="current.lessonId" class="rd-pill" :to="`/context?lesson=${current.lessonId}&word=${current.id}`">返回学习语境</router-link>
+            <router-link class="rd-pill secondary" :to="`/review?focus=${current.id}&practice=1`">提前练习</router-link>
+            <router-link v-if="current.lessonId" class="rd-pill quiet" :to="`/context?lesson=${current.lessonId}&word=${current.id}`">返回学习语境</router-link>
           </div>
         </div>
       </aside>
