@@ -6,6 +6,7 @@ apps/server/.env
 apps/server/.env.*
 apps/server/.env.neon.development
 apps/server/.env.neon.production
+apps/server/.invite.production
 apps/server/src/generated/
 apps/web/dist/
 data/*.db

@@ -3,6 +3,7 @@ import { toNodeHandler } from "better-auth/node";
 import cors from "cors";
 import express from "express";
 import { clientIpHeader, getAuth, inviteConfigured, learnerProvisioningEnabled, publicSignupEnabled, runWithInvite } from "./auth.js";
+import { productionTrustedOrigins } from "./productionBoot.js";
 import { previewTrustedOrigins } from "./previewBoot.js";
 import { AppError } from "./errors.js";
 import { readSessionUserId, resolveRequestLearner } from "./learnerIdentity.js";
@@ -73,7 +74,7 @@ export function createUserRuntimeApp(options: { platform?: "local" | "vercel" } 
       }
       const local = !vercel && (/^http:\/\/127\.0\.0\.1:\d+$/.test(origin) || /^http:\/\/localhost:\d+$/.test(origin));
       const listed = vercel
-        ? previewTrustedOrigins().includes(origin)
+        ? (process.env.VERCEL_ENV === "production" ? productionTrustedOrigins() : previewTrustedOrigins()).includes(origin)
         : (process.env.BETTER_AUTH_TRUSTED_ORIGINS || "").split(",").map((item) => item.trim()).includes(origin);
       callback(null, local || listed);
     },

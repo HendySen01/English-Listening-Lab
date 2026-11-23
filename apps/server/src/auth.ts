@@ -3,6 +3,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { APIError, betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { provisionOwnLearner } from "./learnerProvision.js";
+import { productionAuthBase, productionTrustedOrigins } from "./productionBoot.js";
 import { previewAuthBase, previewTrustedOrigins } from "./previewBoot.js";
 import { authDb, postgresRuntimeRequested } from "./runtimeClients.js";
 import { redactSecrets } from "./serverLog.js";
@@ -111,6 +112,7 @@ function trustedOrigins() {
     "http://127.0.0.1:8787",
     "http://localhost:8787",
   ];
+  if (process.env.VERCEL === "1" && process.env.VERCEL_ENV === "production") return productionTrustedOrigins();
   if (process.env.VERCEL === "1") return previewTrustedOrigins();
   const origins = configured.length ? configured : local;
   if (process.env.AUTH_SELFTEST === "1") origins.push("http://127.0.0.1:*", "http://localhost:*");
@@ -136,7 +138,9 @@ export function getAuth() {
   authKey = key;
   auth = betterAuth({
     appName: "英语学习实验室",
-    baseURL: process.env.VERCEL === "1" ? previewAuthBase() : (process.env.BETTER_AUTH_URL?.trim() || "http://127.0.0.1:8787"),
+    baseURL: process.env.VERCEL === "1"
+      ? (process.env.VERCEL_ENV === "production" ? productionAuthBase() : previewAuthBase())
+      : (process.env.BETTER_AUTH_URL?.trim() || "http://127.0.0.1:8787"),
     basePath: "/api/auth",
     secret,
     trustedOrigins: trustedOrigins(),

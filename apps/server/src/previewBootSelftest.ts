@@ -87,8 +87,9 @@ const production = {
   VERCEL: "1",
   VERCEL_ENV: "production",
   BETTER_AUTH_SECRET: "production-secret-production-secret-32",
-  NEON_DATABASE_URL: "postgresql://user:secret@ep-production-branch-pooler.neon.tech/neondb?sslmode=require",
-  NEON_DIRECT_URL: "postgresql://user:secret@ep-production-branch.neon.tech/neondb?sslmode=require",
+  VERCEL_URL: "english-listening-lab-senberto.vercel.app",
+  NEON_DATABASE_URL: "postgresql://user:secret@ep-weathered-dream-bew7iwf0-pooler.neon.tech/neondb?sslmode=require",
+  NEON_DIRECT_URL: "postgresql://user:secret@ep-weathered-dream-bew7iwf0.neon.tech/neondb?sslmode=require",
 };
 check("[启动] Production 拒绝 development 连接", (() => {
   try {
@@ -107,6 +108,18 @@ check("[启动] Production 没有邀请码时不能开放注册", (() => {
   }
 })());
 check("[启动] Production 有邀请码时可以通过启动检查", assertProductionBoot({ ...production, AUTH_SIGNUP_ENABLED: "1", AUTH_INVITE_CODE: "invite-test-24" }).mode === "production-guarded");
+check("[启动] Production 拒绝未知端点", (() => {
+  try {
+    assertProductionBoot({
+      ...production,
+      NEON_DATABASE_URL: "postgresql://user:secret@ep-other-pooler.neon.tech/neondb?sslmode=require",
+      NEON_DIRECT_URL: "postgresql://user:secret@ep-other.neon.tech/neondb?sslmode=require",
+    });
+    return false;
+  } catch (error) {
+    return error instanceof Error && error.message.includes("confirmed production");
+  }
+})());
 
 if (failures.length) {
   console.error(failures.join("\n"));
