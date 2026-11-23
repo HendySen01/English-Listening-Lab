@@ -1,0 +1,213 @@
+// Target business schema for the isolated multi-user drill.
+// The running app still uses apps/server/prisma/schema.prisma and data/lab.db.
+// userId references Learner.id inside this database. It is not a foreign key
+// to the separate Better Auth database.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/user"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("USER_DATABASE_URL")
+}
+
+model Learner {
+  id          String          @id
+  authUserId  String          @unique
+  boundAt     DateTime?
+  createdAt   DateTime
+  settings    UserSettings?
+  lessons     DailyLesson[]
+  words       Vocabulary[]
+  progress    WordProgress[]
+  questions   QuizQuestion[]
+  attempts    QuizAttempt[]
+  sessions    StudySession[]
+  reviews     ReviewEvent[]
+  usage       AIUsageRecord[]
+}
+
+model UserSettings {
+  id                     String   @id
+  userId                 String   @unique
+  learner                Learner  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dailyNewWords          Int
+  difficulty             String
+  listeningLevel         String
+  dailyMinutes           Int
+  theme                  String
+  customTheme            String
+  autoGenerate           Boolean
+  ttsVoice               String
+  speechRate             Float
+  locale                 String
+  colorMode              String
+  wordPartsEnabled       Boolean
+  recommendationsEnabled Boolean
+  updatedAt              DateTime
+}
+
+model DailyLesson {
+  id               String         @id
+  lessonDate       String
+  version          Int
+  active           Boolean
+  theme            String
+  difficulty       String
+  newWordCount     Int
+  estimatedMinutes Int
+  source           String
+  model            String?
+  poolNote         String
+  progress         String
+  listeningTitle   String
+  listeningText    String
+  listeningChunks  String
+  listeningGloss   String
+  createdAt        DateTime
+  userId           String
+  learner          Learner        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  words            Vocabulary[]
+  questions        QuizQuestion[]
+  sessions         StudySession[]
+
+  @@unique([id, userId])
+  @@unique([userId, lessonDate, version])
+  @@index([userId, lessonDate, active])
+}
+
+model Vocabulary {
+  id             String        @id
+  lemma          String
+  pos            String
+  ipa            String?
+  ipaNote        String
+  stress         String?
+  meaningZh      String
+  definitionEn   String
+  collocation    String
+  example        String
+  exampleZh      String
+  morphology     String?
+  difficulty     String
+  theme          String
+  knownAlready   Boolean
+  exampleFlagged Boolean
+  createdAt      DateTime
+  lessonId       String?
+  userId         String
+  learner        Learner       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson         DailyLesson?  @relation(fields: [lessonId, userId], references: [id, userId], onDelete: Cascade)
+  progress       WordProgress?
+
+  @@unique([id, userId])
+  @@index([userId, lemma])
+}
+
+model WordProgress {
+  id             String     @id
+  vocabularyId   String     @unique
+  due            DateTime
+  stability      Float
+  difficulty     Float
+  elapsedDays    Int
+  scheduledDays  Int
+  learningSteps  Int
+  reps           Int
+  lapses         Int
+  state          Int
+  lastReview     DateTime?
+  firstLearnedAt DateTime
+  correctCount   Int
+  incorrectCount Int
+  familiarity    String
+  recallAbility  String
+  userId         String
+  learner        Learner    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vocabulary     Vocabulary @relation(fields: [vocabularyId, userId], references: [id, userId], onDelete: Cascade)
+
+  @@unique([vocabularyId, userId])
+  @@index([userId, due])
+}
+
+model QuizQuestion {
+  id            String        @id
+  lessonId      String
+  sortOrder     Int
+  kind          String
+  prompt        String
+  options       String
+  answerIndex   Int
+  explanationEn String
+  explanationZh String
+  simplerZh     String
+  evidence      String
+  whyWrong      String
+  userId        String
+  learner       Learner       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson        DailyLesson   @relation(fields: [lessonId, userId], references: [id, userId], onDelete: Cascade)
+  attempts      QuizAttempt[]
+
+  @@unique([id, userId])
+}
+
+model QuizAttempt {
+  id         String       @id
+  questionId String
+  selected   Int
+  correct    Boolean
+  createdAt  DateTime
+  userId     String
+  learner    Learner      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  question   QuizQuestion @relation(fields: [questionId, userId], references: [id, userId], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model StudySession {
+  id        String       @id
+  lessonId  String?
+  module    String
+  minutes   Int
+  createdAt DateTime
+  userId    String
+  learner   Learner      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson    DailyLesson? @relation(fields: [lessonId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+}
+
+model ReviewEvent {
+  id              String   @id
+  vocabularyId    String
+  clientRequestId String?
+  mode            String
+  rating          String
+  dueBefore       DateTime
+  dueAfter        DateTime
+  changedSchedule Boolean
+  createdAt       DateTime
+  userId          String
+  learner         Learner  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientRequestId])
+  @@index([userId, vocabularyId, createdAt])
+}
+
+model AIUsageRecord {
+  id               String   @id
+  kind             String
+  model            String
+  promptTokens     Int?
+  completionTokens Int?
+  success          Boolean
+  error            String?
+  createdAt        DateTime
+  userId           String
+  learner          Learner  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+}
