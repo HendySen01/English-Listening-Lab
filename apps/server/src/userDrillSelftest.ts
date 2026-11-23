@@ -6,10 +6,13 @@ import {
   assignLearnerOwnership,
   authDatabasePath,
   backupLabReadonly,
+  createOwnershipFixture,
   databaseStamp,
   labDatabasePath,
+  learningIntegrityProblems,
   originalAuthUserId,
   originalLearnerId,
+  ownershipFixtureCounts,
   snapshotLearningData,
 } from "../scripts/sqlite/assign-learner-ownership.mjs";
 
@@ -35,15 +38,64 @@ function sameJson(left: unknown, right: unknown) {
 
 const labBefore = stamp(labDatabasePath);
 const authBefore = stamp(authDatabasePath);
+const fixtureFile = path.join(repoRoot, "data", "user-drill-fixture.db");
 const baseFile = path.join(repoRoot, "data", "user-drill-base.db");
 const drillFile = path.join(repoRoot, "data", "user-drill.db");
 const rollbackFile = path.join(repoRoot, "data", "user-drill-rollback.db");
-for (const file of [baseFile, drillFile, rollbackFile]) {
+for (const file of [fixtureFile, path.join(repoRoot, "data", "user-drill-fixture-rollback.db"), baseFile, drillFile, rollbackFile]) {
   for (const suffix of ["", "-wal", "-shm"]) {
     const target = `${file}${suffix}`;
     if (fs.existsSync(target)) fs.rmSync(target);
   }
 }
+
+createOwnershipFixture(fixtureFile);
+const fixtureRollback = path.join(repoRoot, "data", "user-drill-fixture-rollback.db");
+fs.copyFileSync(fixtureFile, fixtureRollback);
+const fixtureSource = new DatabaseSync(fixtureFile, { readOnly: true });
+const fixtureBefore = snapshotLearningData(fixtureSource);
+fixtureSource.close();
+check("固定夹具保持约定数量",
+  fixtureBefore.counts.lessons === ownershipFixtureCounts.lessons
+  && fixtureBefore.counts.words === ownershipFixtureCounts.words
+  && fixtureBefore.counts.progress === ownershipFixtureCounts.progress
+  && fixtureBefore.counts.reviews === ownershipFixtureCounts.reviews
+  && fixtureBefore.counts.questions === ownershipFixtureCounts.questions
+  && fixtureBefore.counts.sessions === ownershipFixtureCounts.sessions
+  && fixtureBefore.counts.usage === ownershipFixtureCounts.usage
+  && learningIntegrityProblems(fixtureBefore).length === 0);
+const fixtureRollbackDb = openDrill(fixtureRollback);
+let fixtureRollbackFailed = false;
+try {
+  assignLearnerOwnership(fixtureRollbackDb, { failBeforeCommit: true });
+} catch (error) {
+  fixtureRollbackFailed = error instanceof Error && error.message.includes("演练故障");
+} finally {
+  fixtureRollbackDb.close();
+}
+const fixtureRolled = new DatabaseSync(fixtureRollback, { readOnly: true });
+const fixtureRolledSnapshot = snapshotLearningData(fixtureRolled);
+const fixtureLearnerLeft = fixtureRolled.prepare(`SELECT name FROM sqlite_master WHERE name = 'Learner'`).get();
+fixtureRolled.close();
+check("固定夹具在提交前失败会完整回滚", fixtureRollbackFailed && !fixtureLearnerLeft && sameJson(fixtureBefore, fixtureRolledSnapshot));
+const fixture = openDrill(fixtureFile);
+assignLearnerOwnership(fixture);
+const fixtureMigrated = snapshotLearningData(fixture);
+check("固定夹具迁移后数量和内容不变", sameJson(fixtureBefore.counts, fixtureMigrated.counts) && sameJson(fixtureBefore.links, fixtureMigrated.links) && sameJson(fixtureBefore.progress, fixtureMigrated.progress) && sameJson(fixtureBefore.lessons, fixtureMigrated.lessons) && sameJson(fixtureBefore.reviews, fixtureMigrated.reviews));
+check("固定夹具的记录都归到演练用户", Number(fixture.prepare(`SELECT COUNT(*) AS n FROM DailyLesson WHERE userId = ?`).get(originalLearnerId).n) === ownershipFixtureCounts.lessons && Number(fixture.prepare(`SELECT COUNT(*) AS n FROM Vocabulary WHERE userId = ?`).get(originalLearnerId).n) === ownershipFixtureCounts.words);
+const fixtureAgain = assignLearnerOwnership(fixture);
+check("固定夹具重复执行不产生新记录", fixtureAgain.already === true && sameJson(snapshotLearningData(fixture), fixtureMigrated));
+let fixtureDuplicate = false;
+try {
+  fixture.prepare(`INSERT INTO DailyLesson (id, lessonDate, version, active, theme, difficulty, newWordCount, estimatedMinutes, source, model, poolNote, progress, listeningTitle, listeningText, listeningChunks, listeningGloss, createdAt, userId) SELECT 'lesson_fixture_duplicate', lessonDate, version, active, theme, difficulty, newWordCount, estimatedMinutes, source, model, poolNote, progress, listeningTitle, listeningText, listeningChunks, listeningGloss, createdAt, userId FROM DailyLesson WHERE id = 'lesson_fixture_0'`).run();
+} catch {
+  fixtureDuplicate = true;
+}
+check("固定夹具拒绝同一用户重复的学习日版本", fixtureDuplicate);
+fixture.close();
+const fixtureVerified = openDrill(fixtureFile);
+check("固定夹具迁移后外键为空", fixtureVerified.prepare("PRAGMA foreign_key_check").all().length === 0);
+fixtureVerified.close();
 
 await backupLabReadonly(baseFile);
 fs.copyFileSync(baseFile, drillFile);
@@ -53,8 +105,10 @@ const source = new DatabaseSync(baseFile, { readOnly: true });
 const before = snapshotLearningData(source);
 source.close();
 const liveSchema = fs.readFileSync(path.join(repoRoot, "apps/server/prisma/schema.prisma"), "utf8");
+const integrity = learningIntegrityProblems(before);
 check("运行中的业务 Schema 仍是单用户", liveSchema.includes("id                     Int      @id @default(1)") && liveSchema.includes("@@unique([lessonDate, version])"));
-check("副本读到现有学习规模", before.counts.lessons === 5 && before.counts.words === 30 && before.counts.progress === 30 && before.counts.reviews === 11 && before.counts.questions === 15 && before.counts.sessions === 3 && before.counts.usage === 7);
+check("真实副本的原始关系完整", integrity.length === 0, integrity.join(","));
+check("真实副本按自身基线保存数量和关联", before.counts.lessons > 0 && before.ids.lessons.length === before.counts.lessons && before.links.words.length === before.counts.words && before.links.questions.length === before.counts.questions && before.reviews.length === before.counts.reviews);
 
 const rollback = openDrill(rollbackFile);
 let rollbackFailed = false;
@@ -79,11 +133,12 @@ check("课程、单词、进度和复习的原标识保留", sameJson(before.ids
 check("FSRS 参数和时间没有重算", sameJson(before.progress, migrated.progress));
 check("复习事件历史没有改写", sameJson(before.reviews, migrated.reviews));
 check("学习日和课程版本没有改写", sameJson(before.lessons, migrated.lessons));
+check("单词、题目、学习和用量关联没有改写", sameJson(before.links, migrated.links));
 check("原设置内容保留", sameJson(before.settings, migrated.settings));
 check("历史记录归到未绑定的演练用户", drill.prepare(`SELECT authUserId, boundAt FROM Learner WHERE id = ?`).get(originalLearnerId).authUserId === originalAuthUserId);
 check("历史请求号仍全部为空", Number(drill.prepare(`SELECT COUNT(*) AS n FROM ReviewEvent WHERE clientRequestId IS NULL`).get().n) === before.counts.reviews);
 const again = assignLearnerOwnership(drill);
-check("重复执行不会复制数据", again.already === true && sameJson(snapshotLearningData(drill).counts, before.counts));
+check("重复执行不会复制数据", again.already === true && sameJson(snapshotLearningData(drill), migrated));
 
 const lesson = drill.prepare(`SELECT lessonDate, version, active, theme, difficulty, newWordCount, estimatedMinutes, source, poolNote, progress, listeningTitle, listeningText, listeningChunks, listeningGloss, createdAt FROM DailyLesson WHERE userId = ? LIMIT 1`).get(originalLearnerId) as Record<string, unknown>;
 drill.prepare(`INSERT INTO Learner (id, authUserId, boundAt, createdAt) VALUES ('learner_drill_b', 'unbound:drill-b', NULL, ?)`).run(Date.now());

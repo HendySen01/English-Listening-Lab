@@ -61,11 +61,26 @@ function countOf(db, table) {
   return Number(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n);
 }
 
+export const ownershipFixtureCounts = {
+  lessons: 5,
+  words: 30,
+  progress: 30,
+  reviews: 11,
+  questions: 15,
+  sessions: 3,
+  usage: 7,
+};
+
 export function snapshotLearningData(db) {
   const progress = db.prepare(`SELECT id, vocabularyId, due, stability, difficulty, elapsedDays, scheduledDays, learningSteps, reps, lapses, state, lastReview, firstLearnedAt, correctCount, incorrectCount, familiarity, recallAbility FROM WordProgress ORDER BY id`).all();
   const reviews = db.prepare(`SELECT id, vocabularyId, clientRequestId, mode, rating, dueBefore, dueAfter, changedSchedule, createdAt FROM ReviewEvent ORDER BY id`).all();
-  const lessons = db.prepare(`SELECT id, lessonDate, version, active, createdAt FROM DailyLesson ORDER BY id`).all();
+  const lessons = db.prepare(`SELECT id, lessonDate, version, active, listeningTitle, listeningText, createdAt FROM DailyLesson ORDER BY id`).all();
   const settings = db.prepare(`SELECT dailyNewWords, difficulty, listeningLevel, dailyMinutes, theme, customTheme, autoGenerate, ttsVoice, speechRate, locale, colorMode, wordPartsEnabled, recommendationsEnabled, updatedAt FROM UserSettings`).all();
+  const words = db.prepare(`SELECT id, lessonId, lemma, example FROM Vocabulary ORDER BY id`).all();
+  const questions = db.prepare(`SELECT id, lessonId, sortOrder, kind, prompt, options, answerIndex, evidence FROM QuizQuestion ORDER BY id`).all();
+  const attempts = db.prepare(`SELECT id, questionId, selected, correct, createdAt FROM QuizAttempt ORDER BY id`).all();
+  const sessions = db.prepare(`SELECT id, lessonId, module, minutes, createdAt FROM StudySession ORDER BY id`).all();
+  const usage = db.prepare(`SELECT id, kind, model, promptTokens, completionTokens, success, error, createdAt FROM AIUsageRecord ORDER BY id`).all();
   return {
     counts: {
       settings: countOf(db, "UserSettings"),
@@ -80,15 +95,131 @@ export function snapshotLearningData(db) {
     },
     ids: {
       lessons: lessons.map((row) => row.id),
-      words: db.prepare(`SELECT id FROM Vocabulary ORDER BY id`).all().map((row) => row.id),
+      words: words.map((row) => row.id),
       progress: progress.map((row) => row.id),
       reviews: reviews.map((row) => row.id),
+      questions: questions.map((row) => row.id),
     },
     progress,
     reviews,
     lessons,
     settings,
+    links: { words, questions, attempts, sessions, usage },
   };
+}
+
+export function learningIntegrityProblems(snapshot) {
+  const problems = [];
+  const lessonIds = new Set(snapshot.ids.lessons);
+  const wordIds = new Set(snapshot.ids.words);
+  const questionIds = new Set(snapshot.ids.questions);
+  if (snapshot.counts.settings !== 1) problems.push("settings");
+  if (lessonIds.size !== snapshot.ids.lessons.length) problems.push("duplicate-lesson");
+  if (wordIds.size !== snapshot.ids.words.length) problems.push("duplicate-word");
+  if (snapshot.counts.words !== snapshot.counts.progress) problems.push("progress-count");
+  for (const row of snapshot.links.words) {
+    if (row.lessonId && !lessonIds.has(row.lessonId)) problems.push(`word:${row.id}`);
+  }
+  for (const row of snapshot.progress) {
+    if (!wordIds.has(row.vocabularyId)) problems.push(`progress:${row.id}`);
+  }
+  for (const row of snapshot.links.questions) {
+    if (!lessonIds.has(row.lessonId)) problems.push(`question:${row.id}`);
+  }
+  for (const row of snapshot.links.attempts) {
+    if (!questionIds.has(row.questionId)) problems.push(`attempt:${row.id}`);
+  }
+  for (const row of snapshot.reviews) {
+    if (!wordIds.has(row.vocabularyId)) problems.push(`review:${row.id}`);
+  }
+  for (const row of snapshot.links.sessions) {
+    if (row.lessonId && !lessonIds.has(row.lessonId)) problems.push(`session:${row.id}`);
+  }
+  return problems;
+}
+
+export function createOwnershipFixture(file) {
+  assertIsolatedDrill(file);
+  if (fs.existsSync(file)) fs.rmSync(file);
+  const db = new DatabaseSync(file);
+  db.exec(`
+    CREATE TABLE UserSettings (
+      id INTEGER PRIMARY KEY, dailyNewWords INTEGER NOT NULL, difficulty TEXT NOT NULL, listeningLevel TEXT NOT NULL,
+      dailyMinutes INTEGER NOT NULL, theme TEXT NOT NULL, customTheme TEXT NOT NULL, autoGenerate BOOLEAN NOT NULL,
+      ttsVoice TEXT NOT NULL, speechRate REAL NOT NULL, locale TEXT NOT NULL, colorMode TEXT NOT NULL,
+      wordPartsEnabled BOOLEAN NOT NULL, recommendationsEnabled BOOLEAN NOT NULL, updatedAt DATETIME NOT NULL
+    );
+    CREATE TABLE DailyLesson (
+      id TEXT PRIMARY KEY, lessonDate TEXT NOT NULL, version INTEGER NOT NULL, active BOOLEAN NOT NULL,
+      theme TEXT NOT NULL, difficulty TEXT NOT NULL, newWordCount INTEGER NOT NULL, estimatedMinutes INTEGER NOT NULL,
+      source TEXT NOT NULL, model TEXT, poolNote TEXT NOT NULL, progress TEXT NOT NULL, listeningTitle TEXT NOT NULL,
+      listeningText TEXT NOT NULL, listeningChunks TEXT NOT NULL, listeningGloss TEXT NOT NULL, createdAt DATETIME NOT NULL,
+      UNIQUE (lessonDate, version)
+    );
+    CREATE TABLE Vocabulary (
+      id TEXT PRIMARY KEY, lemma TEXT NOT NULL, pos TEXT NOT NULL, ipa TEXT, ipaNote TEXT NOT NULL, stress TEXT,
+      meaningZh TEXT NOT NULL, definitionEn TEXT NOT NULL, collocation TEXT NOT NULL, example TEXT NOT NULL,
+      exampleZh TEXT NOT NULL, morphology TEXT, difficulty TEXT NOT NULL, theme TEXT NOT NULL,
+      knownAlready BOOLEAN NOT NULL, exampleFlagged BOOLEAN NOT NULL, createdAt DATETIME NOT NULL, lessonId TEXT,
+      FOREIGN KEY (lessonId) REFERENCES DailyLesson(id)
+    );
+    CREATE TABLE WordProgress (
+      id TEXT PRIMARY KEY, vocabularyId TEXT NOT NULL, due DATETIME NOT NULL, stability REAL NOT NULL,
+      difficulty REAL NOT NULL, elapsedDays INTEGER NOT NULL, scheduledDays INTEGER NOT NULL, learningSteps INTEGER NOT NULL,
+      reps INTEGER NOT NULL, lapses INTEGER NOT NULL, state INTEGER NOT NULL, lastReview DATETIME,
+      firstLearnedAt DATETIME NOT NULL, correctCount INTEGER NOT NULL, incorrectCount INTEGER NOT NULL,
+      familiarity TEXT NOT NULL, recallAbility TEXT NOT NULL, FOREIGN KEY (vocabularyId) REFERENCES Vocabulary(id)
+    );
+    CREATE TABLE QuizQuestion (
+      id TEXT PRIMARY KEY, lessonId TEXT NOT NULL, sortOrder INTEGER NOT NULL, kind TEXT NOT NULL, prompt TEXT NOT NULL,
+      options TEXT NOT NULL, answerIndex INTEGER NOT NULL, explanationEn TEXT NOT NULL, explanationZh TEXT NOT NULL,
+      simplerZh TEXT NOT NULL, evidence TEXT NOT NULL, whyWrong TEXT NOT NULL, FOREIGN KEY (lessonId) REFERENCES DailyLesson(id)
+    );
+    CREATE TABLE QuizAttempt (
+      id TEXT PRIMARY KEY, questionId TEXT NOT NULL, selected INTEGER NOT NULL, correct BOOLEAN NOT NULL,
+      createdAt DATETIME NOT NULL, FOREIGN KEY (questionId) REFERENCES QuizQuestion(id)
+    );
+    CREATE TABLE StudySession (
+      id TEXT PRIMARY KEY, lessonId TEXT, module TEXT NOT NULL, minutes INTEGER NOT NULL, createdAt DATETIME NOT NULL,
+      FOREIGN KEY (lessonId) REFERENCES DailyLesson(id)
+    );
+    CREATE TABLE ReviewEvent (
+      id TEXT PRIMARY KEY, vocabularyId TEXT NOT NULL, clientRequestId TEXT, mode TEXT NOT NULL, rating TEXT NOT NULL,
+      dueBefore DATETIME NOT NULL, dueAfter DATETIME NOT NULL, changedSchedule BOOLEAN NOT NULL, createdAt DATETIME NOT NULL
+    );
+    CREATE TABLE AIUsageRecord (
+      id TEXT PRIMARY KEY, kind TEXT NOT NULL, model TEXT NOT NULL, promptTokens INTEGER, completionTokens INTEGER,
+      success BOOLEAN NOT NULL, error TEXT, createdAt DATETIME NOT NULL
+    );
+  `);
+  const createdAt = 1_700_000_000_000;
+  db.prepare(`INSERT INTO UserSettings (id, dailyNewWords, difficulty, listeningLevel, dailyMinutes, theme, customTheme, autoGenerate, ttsVoice, speechRate, locale, colorMode, wordPartsEnabled, recommendationsEnabled, updatedAt) VALUES (1, 8, 'A2', 'match', 60, 'Daily Life', '', 1, 'en-US', 1, 'zh-CN', 'system', 1, 1, ?)`).run(createdAt);
+  const insertLesson = db.prepare(`INSERT INTO DailyLesson (id, lessonDate, version, active, theme, difficulty, newWordCount, estimatedMinutes, source, model, poolNote, progress, listeningTitle, listeningText, listeningChunks, listeningGloss, createdAt) VALUES (?, ?, 1, 1, 'Daily Life', 'A2', 6, 60, 'offline', NULL, '', '{}', ?, ?, '[]', '{}', ?)`);
+  for (let index = 0; index < ownershipFixtureCounts.lessons; index += 1) {
+    const day = String(index + 1).padStart(2, "0");
+    insertLesson.run(`lesson_fixture_${index}`, `2026-11-${day}`, `Lesson ${index}`, `Sentence ${index}.`, createdAt + index);
+  }
+  const insertWord = db.prepare(`INSERT INTO Vocabulary (id, lemma, pos, ipa, ipaNote, stress, meaningZh, definitionEn, collocation, example, exampleZh, morphology, difficulty, theme, knownAlready, exampleFlagged, createdAt, lessonId) VALUES (?, ?, 'noun', NULL, '', NULL, '测试', 'test', '', ?, '测试', NULL, 'A2', 'Daily Life', 0, 0, ?, ?)`);
+  const insertProgress = db.prepare(`INSERT INTO WordProgress (id, vocabularyId, due, stability, difficulty, elapsedDays, scheduledDays, learningSteps, reps, lapses, state, lastReview, firstLearnedAt, correctCount, incorrectCount, familiarity, recallAbility) VALUES (?, ?, ?, 1.5, 5, 0, 1, 0, 2, 0, 1, NULL, ?, 0, 0, 'new', 'again')`);
+  for (let index = 0; index < ownershipFixtureCounts.words; index += 1) {
+    const lessonId = `lesson_fixture_${index % ownershipFixtureCounts.lessons}`;
+    const wordId = `vocab_fixture_${index}`;
+    insertWord.run(wordId, index < 2 ? "shared-lemma" : `lemma-${index}`, `Example ${index}.`, createdAt, lessonId);
+    insertProgress.run(`progress_fixture_${index}`, wordId, createdAt + index, createdAt);
+  }
+  const insertQuestion = db.prepare(`INSERT INTO QuizQuestion (id, lessonId, sortOrder, kind, prompt, options, answerIndex, explanationEn, explanationZh, simplerZh, evidence, whyWrong) VALUES (?, ?, ?, 'meaning', ?, '[]', 0, 'en', 'zh', 'zh', ?, '[]')`);
+  for (let index = 0; index < ownershipFixtureCounts.questions; index += 1) {
+    insertQuestion.run(`question_fixture_${index}`, `lesson_fixture_${index % ownershipFixtureCounts.lessons}`, index, `Prompt ${index}`, `Evidence ${index}`);
+  }
+  const insertReview = db.prepare(`INSERT INTO ReviewEvent (id, vocabularyId, clientRequestId, mode, rating, dueBefore, dueAfter, changedSchedule, createdAt) VALUES (?, ?, NULL, 'formal', 'good', ?, ?, 1, ?)`);
+  for (let index = 0; index < ownershipFixtureCounts.reviews; index += 1) {
+    insertReview.run(`review_fixture_${index}`, `vocab_fixture_${index}`, createdAt, createdAt + 86_400_000, createdAt + index);
+  }
+  const insertSession = db.prepare(`INSERT INTO StudySession (id, lessonId, module, minutes, createdAt) VALUES (?, 'lesson_fixture_0', 'lesson', 5, ?)`);
+  for (let index = 0; index < ownershipFixtureCounts.sessions; index += 1) insertSession.run(`session_fixture_${index}`, createdAt + index);
+  const insertUsage = db.prepare(`INSERT INTO AIUsageRecord (id, kind, model, promptTokens, completionTokens, success, error, createdAt) VALUES (?, 'explain', 'none', 1, 1, 1, NULL, ?)`);
+  for (let index = 0; index < ownershipFixtureCounts.usage; index += 1) insertUsage.run(`usage_fixture_${index}`, createdAt + index);
+  db.close();
 }
 
 function alreadyUpgraded(db) {
