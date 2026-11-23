@@ -187,7 +187,7 @@ export function createApp() {
 
   app.post("/api/vocabulary/:id/known", async (req, res, next) => {
     try {
-      res.json(await markKnown(req.params.id));
+        res.json(await markKnown(req.params.id, req.body?.clientRequestId));
     } catch (error) {
       next(error);
     }
@@ -217,12 +217,12 @@ export function createApp() {
       if (!["again", "hard", "good", "easy"].includes(rating)) {
         throw new AppError(400, "BAD_RATING", "请选择忘记、困难、记得或非常熟悉");
       }
-      if (req.body?.formal === true) {
-        const recallAbility = req.body?.recallAbility === "recognize" ? "recognize" : "recall";
-        res.json(await rateWord(req.params.id, rating, recallAbility));
-        return;
-      }
-      res.json(await practiceWord(req.params.id, rating));
+        if (req.body?.formal === true) {
+          const recallAbility = req.body?.recallAbility === "recognize" ? "recognize" : "recall";
+          res.json(await rateWord(req.params.id, rating, recallAbility, req.body?.clientRequestId));
+          return;
+        }
+        res.json(await practiceWord(req.params.id, rating, req.body?.clientRequestId));
     } catch (error) {
       next(error);
     }
@@ -235,7 +235,7 @@ export function createApp() {
         throw new AppError(400, "BAD_RATING", "请选择忘记、困难、记得或非常熟悉");
       }
       const recallAbility = req.body?.recallAbility === "recognize" ? "recognize" : "recall";
-      res.json(await rateWord(req.params.id, rating, recallAbility));
+      res.json(await rateWord(req.params.id, rating, recallAbility, req.body?.clientRequestId));
     } catch (error) {
       next(error);
     }

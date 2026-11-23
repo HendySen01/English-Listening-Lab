@@ -21,6 +21,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { api } from "../api";
+import { withReviewRequest } from "../lib/reviewRequest";
 
 const props = defineProps<{ item: any }>();
 const emit = defineEmits<{ done: [] }>();
@@ -28,10 +29,13 @@ const show = ref(false);
 const recognizeOnly = ref(false);
 
 async function rate(rating: string) {
-  await api(`/api/review/${props.item.id}/rate`, {
-    method: "POST",
-    body: JSON.stringify({ rating, recallAbility: recognizeOnly.value ? "recognize" : "recall" }),
-  });
+  const recallAbility = recognizeOnly.value ? "recognize" : "recall";
+  await withReviewRequest(`formal:${props.item.id}`, { rating, recallAbility }, (body) =>
+    api(`/api/review/${props.item.id}/rate`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  );
   emit("done");
 }
 </script>

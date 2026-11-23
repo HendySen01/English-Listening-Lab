@@ -85,6 +85,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { api } from "../api";
+import { withReviewRequest } from "../lib/reviewRequest";
 import { useAppStore, type Lesson, type Progress } from "../stores/app";
 import LessonWord from "../components/LessonWord.vue";
 import { useStudyClock } from "../composables/useStudyClock";
@@ -158,10 +159,12 @@ async function moveWord(delta: number) {
 
 async function submitRating(rating: string) {
   if (!recallWord.value) return;
-  await api(`/api/review/${recallWord.value.id}/rate`, {
-    method: "POST",
-    body: JSON.stringify({ rating, recallAbility: recognizeOnly.value ? "recognize" : "recall" }),
-  });
+  await withReviewRequest(`formal:${recallWord.value.id}`, { rating, recallAbility: recognizeOnly.value ? "recognize" : "recall" }, (body) =>
+    api(`/api/review/${recallWord.value.id}/rate`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  );
   recognizeOnly.value = false;
   await reload();
 }

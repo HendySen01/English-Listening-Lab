@@ -46,6 +46,7 @@ import { onMounted, onUnmounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { api } from "../api";
 import { formatDue, formatWhen } from "../lib/due";
+import { withReviewRequest } from "../lib/reviewRequest";
 import "../preview/reader.css";
 import { useStudyClock } from "../composables/useStudyClock";
 useStudyClock("review", () => null);
@@ -98,10 +99,14 @@ async function submit(rating: string) {
     return;
   }
   if (formal.value && !confirm("计入正式复习后，会按这次表现用 FSRS 改写下一次复习时间。继续吗？")) return;
-  const result = await api<{ note: string; due: string; changedSchedule: boolean }>(`/api/review/${current.value.id}/practice`, {
-    method: "POST",
-    body: JSON.stringify({ rating, formal: formal.value }),
-  });
+  const result = await withReviewRequest(
+    `${formal.value ? "formal" : "practice"}:${current.value.id}`,
+    { rating, formal: formal.value },
+    (body) => api<{ note: string; due: string; changedSchedule: boolean }>(`/api/review/${current.value.id}/practice`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  );
   feedback.value = `${result.note} 下次复习：${formatWhen(result.due)}，${formatDue(result.due, new Date())}。`;
   formal.value = false;
   await load();

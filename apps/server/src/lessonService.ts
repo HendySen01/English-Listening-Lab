@@ -1,3 +1,4 @@
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { BANK } from "./bank.js";
 import { prisma } from "./prisma.js";
 import { AppError } from "./errors.js";
@@ -352,15 +353,17 @@ function rememberedCard(memory: Map<string, MemoryRow>, lemma: string) {
   };
 }
 
-async function mirrorLemma(vocabularyId: string) {
-  const current = await prisma.wordProgress.findUnique({ where: { vocabularyId }, include: { vocabulary: true } });
+type ReviewDb = Prisma.TransactionClient | PrismaClient;
+
+async function mirrorLemma(db: ReviewDb, vocabularyId: string) {
+  const current = await db.wordProgress.findUnique({ where: { vocabularyId }, include: { vocabulary: true } });
   if (!current) return;
   const key = current.vocabulary.lemma.trim().toLowerCase();
-  const siblings = (await prisma.wordProgress.findMany({ include: { vocabulary: true } })).filter(
+  const siblings = (await db.wordProgress.findMany({ include: { vocabulary: true } })).filter(
     (row) => row.vocabularyId !== vocabularyId && row.vocabulary.lemma.trim().toLowerCase() === key,
   );
   if (!siblings.length) return;
-  await prisma.wordProgress.updateMany({
+  await db.wordProgress.updateMany({
     where: { vocabularyId: { in: siblings.map((row) => row.vocabularyId) } },
     data: {
       due: current.due,
@@ -379,7 +382,7 @@ async function mirrorLemma(vocabularyId: string) {
       recallAbility: current.recallAbility,
     },
   });
-  await prisma.vocabulary.updateMany({
+  await db.vocabulary.updateMany({
     where: { id: { in: siblings.map((row) => row.vocabularyId) } },
     data: { knownAlready: current.vocabulary.knownAlready },
   });
@@ -493,14 +496,72 @@ export async function answerQuestion(questionId: string, selected: number) {
   return presentLesson(lesson).questions.find((item) => item.id === questionId);
 }
 
-export async function rateWord(vocabularyId: string, rating: RatingName, recallAbility: "recognize" | "recall") {
-  const progress = await prisma.wordProgress.findUnique({ where: { vocabularyId } });
+const requestIdPattern = /^[A-Za-z0-9_-]{8,80}$/;
+
+export function normalizeRequestId(value: unknown) {
+  if (value == null || value === "") return null;
+  const text = String(value).trim();
+  if (!requestIdPattern.test(text)) throw new AppError(400, "BAD_REQUEST_ID", "复习请求号不正确。");
+  return text;
+}
+
+class ReviewConflict extends Error {}
+
+function isUniqueConflict(error: unknown) {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+function familiarityFor(rating: RatingName) {
+  return rating === "again" ? "forgot" : rating === "hard" ? "hard" : rating === "easy" ? "easy" : "remembered";
+}
+
+async function replayReview(db: ReviewDb, requestId: string, vocabularyId: string, mode: "formal" | "practice", rating: RatingName) {
+  const existing = await db.reviewEvent.findUnique({ where: { clientRequestId: requestId } });
+  if (!existing) return null;
+  if (existing.vocabularyId !== vocabularyId || existing.mode !== mode || existing.rating !== rating) {
+    throw new AppError(409, "REQUEST_REUSED", "这个请求号已经用于另一次复习，没有再次计分。");
+  }
+  const progress = await db.wordProgress.findUnique({ where: { vocabularyId } });
+  if (!progress) throw new AppError(404, "NOT_FOUND", "找不到这个词的复习记录");
+  return {
+    due: existing.dueAfter,
+    familiarity: progress.familiarity,
+    intervals: previewDays(storedFrom(progress)),
+    changedSchedule: existing.changedSchedule,
+    replayed: true,
+    note: mode === "formal" ? "这次提交已经记录过，没有再次计分。" : "这次提前练习已经记录过，排程没有改变。",
+  };
+}
+
+export async function applyFormalReview(
+  db: ReviewDb,
+  vocabularyId: string,
+  rating: RatingName,
+  recallAbility: "recognize" | "recall",
+  clientRequestId: string | null,
+  markKnown = false,
+) {
+  if (markKnown) await db.vocabulary.update({ where: { id: vocabularyId }, data: { knownAlready: true } });
+  if (clientRequestId) {
+    const replay = await replayReview(db, clientRequestId, vocabularyId, "formal", rating);
+    if (replay) return replay;
+  }
+  const progress = await db.wordProgress.findUnique({ where: { vocabularyId } });
   if (!progress) throw new AppError(404, "NOT_FOUND", "找不到这个词的复习记录");
   const next = schedule(storedFrom(progress), rating);
   const correct = rating === "good" || rating === "easy";
-  const familiarity = rating === "again" ? "forgot" : rating === "hard" ? "hard" : rating === "easy" ? "easy" : "remembered";
-  await prisma.wordProgress.update({
-    where: { vocabularyId },
+  const familiarity = familiarityFor(rating);
+  const updated = await db.wordProgress.updateMany({
+    where: {
+      vocabularyId,
+      due: progress.due,
+      reps: progress.reps,
+      lapses: progress.lapses,
+      state: progress.state,
+      correctCount: progress.correctCount,
+      incorrectCount: progress.incorrectCount,
+      lastReview: progress.lastReview,
+    },
     data: {
       ...cardData(next),
       correctCount: progress.correctCount + (correct ? 1 : 0),
@@ -509,9 +570,11 @@ export async function rateWord(vocabularyId: string, rating: RatingName, recallA
       recallAbility,
     },
   });
-  await prisma.reviewEvent.create({
+  if (updated.count !== 1) throw new ReviewConflict();
+  await db.reviewEvent.create({
     data: {
       vocabularyId,
+      clientRequestId,
       mode: "formal",
       rating,
       dueBefore: progress.due,
@@ -519,40 +582,81 @@ export async function rateWord(vocabularyId: string, rating: RatingName, recallA
       changedSchedule: true,
     },
   });
-  await mirrorLemma(vocabularyId);
+  await mirrorLemma(db, vocabularyId);
   return {
     due: next.due,
     familiarity,
     intervals: previewDays(next),
     changedSchedule: true,
+    replayed: false,
     note: "这次已计入正式复习，下次时间由 FSRS 重新计算。",
   };
 }
 
-export async function practiceWord(vocabularyId: string, rating: RatingName) {
-  const progress = await prisma.wordProgress.findUnique({ where: { vocabularyId } });
-  if (!progress) throw new AppError(404, "NOT_FOUND", "找不到这个词的复习记录");
-  await prisma.reviewEvent.create({
-    data: {
-      vocabularyId,
-      mode: "practice",
-      rating,
-      dueBefore: progress.due,
-      dueAfter: progress.due,
-      changedSchedule: false,
-    },
-  });
-  return {
-    due: progress.due,
-    familiarity: progress.familiarity,
-    changedSchedule: false,
-    note: "这次是提前练习。原定复习时间、正式复习次数和记忆等级都没有改变。",
-  };
+export async function rateWord(
+  vocabularyId: string,
+  rating: RatingName,
+  recallAbility: "recognize" | "recall",
+  clientRequestId?: unknown,
+  options?: { markKnown?: boolean },
+) {
+  const requestId = normalizeRequestId(clientRequestId);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      return await prisma.$transaction((tx) => applyFormalReview(tx, vocabularyId, rating, recallAbility, requestId, options?.markKnown === true));
+    } catch (error) {
+      if (error instanceof ReviewConflict) continue;
+      if (requestId && isUniqueConflict(error)) {
+        const replay = await replayReview(prisma, requestId, vocabularyId, "formal", rating);
+        if (replay) return replay;
+      }
+      throw error;
+    }
+  }
+  throw new AppError(409, "CONCURRENT_REVIEW", "这个词的复习正在同时保存，请再试一次。这次没有重复计分。");
 }
 
-export async function markKnown(vocabularyId: string) {
-  await prisma.vocabulary.update({ where: { id: vocabularyId }, data: { knownAlready: true } });
-  return rateWord(vocabularyId, "easy", "recall");
+export async function practiceWord(vocabularyId: string, rating: RatingName, clientRequestId?: unknown) {
+  const requestId = normalizeRequestId(clientRequestId);
+  try {
+    return await prisma.$transaction(async (tx) => {
+      if (requestId) {
+        const replay = await replayReview(tx, requestId, vocabularyId, "practice", rating);
+        if (replay) return replay;
+      }
+      const progress = await tx.wordProgress.findUnique({ where: { vocabularyId } });
+      if (!progress) throw new AppError(404, "NOT_FOUND", "找不到这个词的复习记录");
+      await tx.reviewEvent.create({
+        data: {
+          vocabularyId,
+          clientRequestId: requestId,
+          mode: "practice",
+          rating,
+          dueBefore: progress.due,
+          dueAfter: progress.due,
+          changedSchedule: false,
+        },
+      });
+      return {
+        due: progress.due,
+        familiarity: progress.familiarity,
+        intervals: previewDays(storedFrom(progress)),
+        changedSchedule: false,
+        replayed: false,
+        note: "这次是提前练习。原定复习时间、正式复习次数和记忆等级都没有改变。",
+      };
+    });
+  } catch (error) {
+    if (requestId && isUniqueConflict(error)) {
+      const replay = await replayReview(prisma, requestId, vocabularyId, "practice", rating);
+      if (replay) return replay;
+    }
+    throw error;
+  }
+}
+
+export async function markKnown(vocabularyId: string, clientRequestId?: unknown) {
+  return rateWord(vocabularyId, "easy", "recall", clientRequestId, { markKnown: true });
 }
 
 export async function easierExample(vocabularyId: string, confirmCost: boolean) {

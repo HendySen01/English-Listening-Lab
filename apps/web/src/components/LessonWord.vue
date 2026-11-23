@@ -47,6 +47,7 @@ import BlurText from "../preview/BlurText.vue"
 import ReaderNotes from "../preview/ReaderNotes.vue"
 import { useExplanation } from "../preview/explain"
 import { api } from "../api"
+import { withReviewRequest } from "../lib/reviewRequest"
 import { useSpeech } from "../composables/useSpeech"
 import type { Word } from "../stores/app"
 import "../preview/reader.css"
@@ -85,14 +86,18 @@ async function speak(text: string) {
 
 async function onMark(value: "known" | "again") {
   if (value === "known") {
-    await api(`/api/vocabulary/${props.word.id}/known`, { method: "POST" })
+    await withReviewRequest(`known:${props.word.id}`, {}, (body) =>
+      api(`/api/vocabulary/${props.word.id}/known`, { method: "POST", body: JSON.stringify(body) }),
+    )
     mark.value = "known"
     message.value = "已记为认识。后面的新课不会再把它当新词。"
   } else {
-    await api(`/api/review/${props.word.id}/rate`, {
-      method: "POST",
-      body: JSON.stringify({ rating: "hard", recallAbility: "recognize" }),
-    })
+    await withReviewRequest(`formal:${props.word.id}`, { rating: "hard", recallAbility: "recognize" }, (body) =>
+      api(`/api/review/${props.word.id}/rate`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    )
     mark.value = "again"
     message.value = "已记为需要加强，复习会来得更早。"
   }

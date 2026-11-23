@@ -138,6 +138,7 @@ model StudySession {
 model ReviewEvent {
   id              String   @id @default(cuid())
   vocabularyId    String
+  clientRequestId String?  @unique
   mode            String
   rating          String
   dueBefore       DateTime

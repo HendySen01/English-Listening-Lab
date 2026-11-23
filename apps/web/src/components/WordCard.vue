@@ -36,6 +36,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { api } from "../api";
+import { withReviewRequest } from "../lib/reviewRequest";
 import { useSpeech } from "../composables/useSpeech";
 import type { Word } from "../stores/app";
 
@@ -68,16 +69,20 @@ async function easier() {
 }
 
 async function known() {
-  await api(`/api/vocabulary/${props.word.id}/known`, { method: "POST" });
+  await withReviewRequest(`known:${props.word.id}`, {}, (body) =>
+    api(`/api/vocabulary/${props.word.id}/known`, { method: "POST", body: JSON.stringify(body) }),
+  );
   message.value = "已记为认识。后面的新课不会再把它当新词。";
   emit("changed");
 }
 
 async function strengthen() {
-  await api(`/api/review/${props.word.id}/rate`, {
-    method: "POST",
-    body: JSON.stringify({ rating: "hard", recallAbility: "recognize" }),
-  });
+  await withReviewRequest(`formal:${props.word.id}`, { rating: "hard", recallAbility: "recognize" }, (body) =>
+    api(`/api/review/${props.word.id}/rate`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  );
   message.value = "已记为需要加强，复习会来得更早。";
   emit("changed");
 }
