@@ -34,9 +34,14 @@ async function assertStudySessionGuard(db: NeonUser) {
      WHERE event_object_schema = '${businessSchema}' AND event_object_table = 'StudySession'
      AND trigger_name = 'study_session_same_user_insert'`,
   ) as Array<{ n: number }>;
-  const leaked = await db.$queryRawUnsafe(
-    `SELECT COUNT(*)::int AS n FROM public."_prisma_migrations" WHERE migration_name = '${migrationName}'`,
+  const publicMigrations = await db.$queryRawUnsafe(
+    `SELECT COUNT(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public' AND table_name = '_prisma_migrations'`,
   ) as Array<{ n: number }>;
+  const leaked = publicMigrations[0].n === 0
+    ? [{ n: 0 }]
+    : await db.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n FROM public."_prisma_migrations" WHERE migration_name = '${migrationName}'`,
+    ) as Array<{ n: number }>;
   if (leaked[0].n !== 0) throw new Error("public 出现隔离迁移记录，已拒绝启动。");
   if (applied[0].n < 1 || trigger[0].n < 1) {
     throw new Error("StudySession 跨用户约束尚未在隔离 schema 执行。启动不会自动迁移。");
