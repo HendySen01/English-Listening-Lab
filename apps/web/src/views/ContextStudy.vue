@@ -52,11 +52,13 @@ import { tokenize } from "../preview/reader-data"
 import { useSpeech } from "../composables/useSpeech"
 import { api } from "../api"
 import { useAppStore, type Lesson } from "../stores/app"
+import { useStudyClock } from "../composables/useStudyClock"
 import "../preview/reader.css"
 
 const route = useRoute()
 const store = useAppStore()
 const lesson = ref<Lesson | null>(null)
+useStudyClock("context", () => lesson.value?.id || null)
 const errorText = ref("")
 const index = ref(0)
 const selected = ref("")

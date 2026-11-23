@@ -9,9 +9,11 @@ import { onMounted, ref } from "vue";
 import { api } from "../api";
 import { useAppStore, type Lesson, type Progress } from "../stores/app";
 import LessonListening from "../components/LessonListening.vue";
+import { useStudyClock } from "../composables/useStudyClock";
 
 const store = useAppStore();
 const lesson = ref<Lesson | null>(null);
+useStudyClock("listening", () => lesson.value?.id || null);
 const error = ref("");
 
 async function save(progress?: Progress) {

@@ -1,6 +1,10 @@
 <template>
-  <section class="settings-grid" v-if="form">
-    <article class="card stack">
+  <section class="settings-shell" v-if="form">
+    <nav class="settings-nav" aria-label="设置分类">
+      <button v-for="item in sections" :key="item.id" class="choice" type="button" :aria-pressed="section === item.id" @click="section = item.id">{{ item.label }}</button>
+    </nav>
+    <div>
+    <article class="card stack" v-show="section === 'plan'">
       <h2>学习计划</h2>
       <p class="notice">新词数量、难度和主题会在下一次生成新课时生效。已经生成的今天课程不会被悄悄覆盖。</p>
       <label class="field">每天新词（3–20）<input type="number" min="3" max="20" v-model.number="form.dailyNewWords" /></label>
@@ -35,18 +39,19 @@
       <label class="row"><input type="checkbox" v-model="form.wordPartsEnabled" /> 显示词根词缀</label>
       <label class="row"><input type="checkbox" v-model="form.recommendationsEnabled" /> 显示数量建议</label>
     </article>
-    <article class="card stack">
-      <h2>AI 课程生成</h2>
-      <p>状态：{{ system?.llmState || "正在读取" }}</p>
+    <article class="card stack" v-show="section === 'ai'">
+      <h2>AI 服务</h2>
+      <p>每日课程生成：{{ system?.llmState || "正在读取" }}。这和下方的语境深度解析不是同一个按钮。</p>
       <p class="muted">提供商：{{ system?.llmProvider || "未配置" }} · 模型：{{ system?.llmModel || "无" }}</p>
       <p class="muted">最近成功：{{ system?.lastSuccessAt ? formatWhen(system.lastSuccessAt) : "还没有成功调用" }}</p>
       <p class="muted">今天 {{ system?.aiUsedToday || 0 }} / {{ system?.aiDailyLimit }} 次。输入 token {{ system?.promptTokens ?? "未知" }}，输出 token {{ system?.completionTokens ?? "未知" }}。没有可靠单价时不估算费用。</p>
       <p v-if="system?.lastError" class="bad">最近失败：{{ system.lastError }}</p>
-      <button class="choice" @click="testAi">测试 AI 连接</button>
+      <p class="muted">语境深度解析在单词或语境页里单独点击，会按句子写入解释缓存，不会在这里自动运行。</p>
+      <button class="choice" @click="testAi">测试课程生成连接</button>
     </article>
-    <article class="card stack">
-      <h2>语音服务</h2>
-      <p>在线语音：{{ system?.ttsState }}</p>
+    <article class="card stack" v-show="section === 'voice'">
+      <h2>语音与听力</h2>
+      <p>在线 TTS：{{ system?.ttsState }}。浏览器能朗读，不代表在线语音已经验证。</p>
       <p class="muted">{{ system?.ttsHost || "未配置" }} · {{ system?.ttsModel || "无模型" }} · 音色 {{ system?.ttsVoice || "无" }}</p>
       <p>{{ system?.ttsNote }}</p>
       <p>浏览器语音：{{ browserVoices }}</p>
@@ -61,8 +66,9 @@
       </label>
       <p class="muted">默认播放使用浏览器语音，不会自动扣在线语音费用。播放器里可以另行确认后再用在线语音。</p>
     </article>
-    <article class="card stack">
+    <article class="card stack" v-show="section === 'look'">
       <h2>外观</h2>
+      <p class="muted">颜色选择后立即生效。学习计划要点保存，并在下一节新课使用。</p>
       <label class="field">颜色
         <select v-model="form.colorMode" @change="applyTheme(form.colorMode)">
           <option value="light">浅色</option>
@@ -74,11 +80,12 @@
       <p v-if="message" :class="error ? 'bad' : 'ok'">{{ message }}</p>
       <button class="choice active" @click="save">保存设置</button>
     </article>
-    <article class="card stack">
+    <article class="card stack" v-show="section === 'data'">
       <h2>数据管理</h2>
       <p>课程、词汇、听力和 FSRS 复习记录都留在本机数据库里。</p>
       <p class="muted">这个页面不能清空数据库，也不能删除历史课程。生成新版本时，旧版本仍可在历史课程里打开。</p>
     </article>
+    </div>
   </section>
 </template>
 
@@ -89,6 +96,14 @@ import { formatWhen } from "../lib/due";
 import { applyTheme, useAppStore } from "../stores/app";
 
 const store = useAppStore();
+const sections = [
+  { id: "plan", label: "学习计划" },
+  { id: "ai", label: "AI 服务" },
+  { id: "voice", label: "语音与听力" },
+  { id: "look", label: "外观" },
+  { id: "data", label: "数据管理" },
+];
+const section = ref("plan");
 const form = ref<any>(null);
 const system = ref<any>(null);
 const message = ref("");

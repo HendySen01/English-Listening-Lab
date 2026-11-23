@@ -47,6 +47,8 @@ import { useRoute } from "vue-router";
 import { api } from "../api";
 import { formatDue, formatWhen } from "../lib/due";
 import "../preview/reader.css";
+import { useStudyClock } from "../composables/useStudyClock";
+useStudyClock("review", () => null);
 
 const route = useRoute();
 const filters = [

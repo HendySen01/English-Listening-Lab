@@ -9,8 +9,8 @@
       </router-link>
       <nav class="nav" aria-label="主导航">
         <router-link to="/"><CalendarDays aria-hidden="true" :size="18" />今天</router-link>
-        <router-link to="/lesson"><BookOpen aria-hidden="true" :size="18" />我的课程</router-link>
         <router-link to="/context"><FileText aria-hidden="true" :size="18" />语境阅读</router-link>
+        <router-link to="/lesson"><BookOpen aria-hidden="true" :size="18" />我的课程</router-link>
         <router-link to="/library"><Library aria-hidden="true" :size="18" />词汇库</router-link>
         <router-link to="/listening"><Headphones aria-hidden="true" :size="18" />听力训练</router-link>
         <router-link to="/review"><RotateCcw aria-hidden="true" :size="18" />复习计划</router-link>
