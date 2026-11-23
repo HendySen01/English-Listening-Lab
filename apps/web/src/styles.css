@@ -247,6 +247,12 @@ html.dark .week-bars i { background: #6d806c; }
 .day-copy .muted { margin: 6px 0 0; }
 .day-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .day-actions .choice { min-width: 132px; }
+.home-hero > .choice,
+.day-actions > .choice {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 .version-line { padding-top: 4px; border-top: 1px solid var(--line); }
 .version-list { display: grid; gap: 8px; margin-top: 10px; }
 .version-row { padding: 8px 0; }
