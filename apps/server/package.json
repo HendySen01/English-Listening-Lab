@@ -7,8 +7,10 @@
     "start": "tsx src/index.ts",
     "db:push": "prisma db push",
     "auth:generate": "prisma generate --schema prisma-auth/schema.prisma",
-    "postinstall": "prisma generate && prisma generate --schema prisma-auth/schema.prisma",
-    "test": "tsx src/selftest.ts && tsx src/authSelftest.ts && tsx src/userDrillSelftest.ts"
+    "user:generate": "node scripts/user/generate.mjs",
+    "user-runtime": "tsx src/userRuntime.ts",
+    "postinstall": "prisma generate && prisma generate --schema prisma-auth/schema.prisma && node scripts/user/generate.mjs",
+    "test": "tsx src/selftest.ts && tsx src/authSelftest.ts && tsx src/userDrillSelftest.ts && tsx src/userRuntimeSelftest.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.0",

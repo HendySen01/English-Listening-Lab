@@ -17,8 +17,9 @@ export function assertIsolatedDrill(file) {
   const base = path.basename(resolved).toLowerCase();
   const dataDir = path.resolve(repoRoot, "data");
   if (!resolved.startsWith(dataDir + path.sep)) throw new Error("演练库必须位于 data 目录。");
-  if (forbidden.has(base) || !base.startsWith("user-drill") || !base.endsWith(".db")) {
-    throw new Error("演练库文件名必须是 user-drill 开头，且不能是学习库或认证库。");
+  const isolatedCopy = base.startsWith("user-drill") || base.startsWith("user-runtime");
+  if (forbidden.has(base) || !isolatedCopy || !base.endsWith(".db")) {
+    throw new Error("演练库文件名必须是 user-drill 或 user-runtime 开头，且不能是学习库或认证库。");
   }
   if (resolved === path.resolve(labDatabasePath) || resolved === path.resolve(authDatabasePath)) {
     throw new Error("拒绝写入真实学习库或认证库。");
@@ -101,12 +102,14 @@ function alreadyUpgraded(db) {
 }
 
 function createNextTables(db) {
+  // DateTime 用 DATETIME、布尔用 BOOLEAN，和 Prisma 6 的 SQLite 客户端一致。
+  // 复制进去的仍是原来的 Unix 毫秒和 0/1，不换算、不重算。
   db.exec(`
     CREATE TABLE Learner (
       id TEXT PRIMARY KEY,
       authUserId TEXT NOT NULL UNIQUE,
-      boundAt INTEGER,
-      createdAt INTEGER NOT NULL
+      boundAt DATETIME,
+      createdAt DATETIME NOT NULL
     );
     CREATE TABLE SchemaRevision (
       id TEXT PRIMARY KEY,
@@ -121,20 +124,20 @@ function createNextTables(db) {
       dailyMinutes INTEGER NOT NULL,
       theme TEXT NOT NULL,
       customTheme TEXT NOT NULL,
-      autoGenerate INTEGER NOT NULL,
+      autoGenerate BOOLEAN NOT NULL,
       ttsVoice TEXT NOT NULL,
       speechRate REAL NOT NULL,
       locale TEXT NOT NULL,
       colorMode TEXT NOT NULL,
-      wordPartsEnabled INTEGER NOT NULL,
-      recommendationsEnabled INTEGER NOT NULL,
-      updatedAt INTEGER NOT NULL
+      wordPartsEnabled BOOLEAN NOT NULL,
+      recommendationsEnabled BOOLEAN NOT NULL,
+      updatedAt DATETIME NOT NULL
     );
     CREATE TABLE DailyLesson_next (
       id TEXT PRIMARY KEY,
       lessonDate TEXT NOT NULL,
       version INTEGER NOT NULL,
-      active INTEGER NOT NULL,
+      active BOOLEAN NOT NULL,
       theme TEXT NOT NULL,
       difficulty TEXT NOT NULL,
       newWordCount INTEGER NOT NULL,
@@ -147,7 +150,7 @@ function createNextTables(db) {
       listeningText TEXT NOT NULL,
       listeningChunks TEXT NOT NULL,
       listeningGloss TEXT NOT NULL,
-      createdAt INTEGER NOT NULL,
+      createdAt DATETIME NOT NULL,
       userId TEXT NOT NULL REFERENCES Learner(id) ON DELETE CASCADE,
       UNIQUE (id, userId),
       UNIQUE (userId, lessonDate, version)
@@ -168,9 +171,9 @@ function createNextTables(db) {
       morphology TEXT,
       difficulty TEXT NOT NULL,
       theme TEXT NOT NULL,
-      knownAlready INTEGER NOT NULL,
-      exampleFlagged INTEGER NOT NULL,
-      createdAt INTEGER NOT NULL,
+      knownAlready BOOLEAN NOT NULL,
+      exampleFlagged BOOLEAN NOT NULL,
+      createdAt DATETIME NOT NULL,
       lessonId TEXT,
       userId TEXT NOT NULL REFERENCES Learner(id) ON DELETE CASCADE,
       UNIQUE (id, userId),
@@ -180,7 +183,7 @@ function createNextTables(db) {
     CREATE TABLE WordProgress_next (
       id TEXT PRIMARY KEY,
       vocabularyId TEXT NOT NULL UNIQUE,
-      due INTEGER NOT NULL,
+      due DATETIME NOT NULL,
       stability REAL NOT NULL,
       difficulty REAL NOT NULL,
       elapsedDays INTEGER NOT NULL,
@@ -189,8 +192,8 @@ function createNextTables(db) {
       reps INTEGER NOT NULL,
       lapses INTEGER NOT NULL,
       state INTEGER NOT NULL,
-      lastReview INTEGER,
-      firstLearnedAt INTEGER NOT NULL,
+      lastReview DATETIME,
+      firstLearnedAt DATETIME NOT NULL,
       correctCount INTEGER NOT NULL,
       incorrectCount INTEGER NOT NULL,
       familiarity TEXT NOT NULL,
@@ -221,8 +224,8 @@ function createNextTables(db) {
       id TEXT PRIMARY KEY,
       questionId TEXT NOT NULL,
       selected INTEGER NOT NULL,
-      correct INTEGER NOT NULL,
-      createdAt INTEGER NOT NULL,
+      correct BOOLEAN NOT NULL,
+      createdAt DATETIME NOT NULL,
       userId TEXT NOT NULL,
       FOREIGN KEY (questionId, userId) REFERENCES QuizQuestion_next(id, userId) ON DELETE CASCADE
     );
@@ -232,7 +235,7 @@ function createNextTables(db) {
       lessonId TEXT,
       module TEXT NOT NULL,
       minutes INTEGER NOT NULL,
-      createdAt INTEGER NOT NULL,
+      createdAt DATETIME NOT NULL,
       userId TEXT NOT NULL REFERENCES Learner(id) ON DELETE CASCADE
     );
     CREATE INDEX StudySession_user_created_idx ON StudySession_next(userId, createdAt);
@@ -242,10 +245,10 @@ function createNextTables(db) {
       clientRequestId TEXT,
       mode TEXT NOT NULL,
       rating TEXT NOT NULL,
-      dueBefore INTEGER NOT NULL,
-      dueAfter INTEGER NOT NULL,
-      changedSchedule INTEGER NOT NULL,
-      createdAt INTEGER NOT NULL,
+      dueBefore DATETIME NOT NULL,
+      dueAfter DATETIME NOT NULL,
+      changedSchedule BOOLEAN NOT NULL,
+      createdAt DATETIME NOT NULL,
       userId TEXT NOT NULL REFERENCES Learner(id) ON DELETE CASCADE,
       UNIQUE (userId, clientRequestId)
     );
@@ -256,9 +259,9 @@ function createNextTables(db) {
       model TEXT NOT NULL,
       promptTokens INTEGER,
       completionTokens INTEGER,
-      success INTEGER NOT NULL,
+      success BOOLEAN NOT NULL,
       error TEXT,
-      createdAt INTEGER NOT NULL,
+      createdAt DATETIME NOT NULL,
       userId TEXT NOT NULL REFERENCES Learner(id) ON DELETE CASCADE
     );
     CREATE INDEX AIUsageRecord_user_created_idx ON AIUsageRecord_next(userId, createdAt);
