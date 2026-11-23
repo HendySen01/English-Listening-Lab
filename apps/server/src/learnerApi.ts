@@ -253,6 +253,8 @@ async function createOfflineLesson(learner: VerifiedLearner, lessonDate: string,
     orderBy: { version: "desc" },
   });
   const id = `lesson_${learner.learnerId}_${lessonDate}_${source}_${(latest?.version ?? 0) + 1}`;
+  const wordId = `vocab_${id}_schedule`;
+  const createdAt = new Date();
   await db().$transaction([
     db().dailyLesson.updateMany({ where: { userId: learner.learnerId, lessonDate }, data: { active: false } }),
     db().dailyLesson.create({
@@ -270,10 +272,51 @@ async function createOfflineLesson(learner: VerifiedLearner, lessonDate: string,
         poolNote: "",
         progress: "{}",
         listeningTitle: source,
-        listeningText: "A short runtime sentence.",
+        listeningText: "I need to schedule a short appointment today.",
         listeningChunks: "[]",
-        listeningGloss: "{}",
-        createdAt: new Date(),
+        listeningGloss: JSON.stringify({ schedule: "安排" }),
+        createdAt,
+        userId: learner.learnerId,
+      },
+    }),
+    db().vocabulary.create({
+      data: {
+        id: wordId,
+        lemma: "schedule",
+        pos: "verb",
+        ipaNote: "",
+        meaningZh: "安排",
+        definitionEn: "to plan a time for something",
+        collocation: "schedule a meeting",
+        example: "I need to schedule a short appointment today.",
+        exampleZh: "我今天需要安排一个短会面。",
+        difficulty: "A2",
+        theme: "Daily Life",
+        knownAlready: false,
+        exampleFlagged: false,
+        createdAt,
+        lessonId: id,
+        userId: learner.learnerId,
+      },
+    }),
+    db().wordProgress.create({
+      data: {
+        id: `progress_${wordId}`,
+        vocabularyId: wordId,
+        due: createdAt,
+        stability: 0.5,
+        difficulty: 5,
+        elapsedDays: 0,
+        scheduledDays: 0,
+        learningSteps: 0,
+        reps: 0,
+        lapses: 0,
+        state: 0,
+        firstLearnedAt: createdAt,
+        correctCount: 0,
+        incorrectCount: 0,
+        familiarity: "new",
+        recallAbility: "again",
         userId: learner.learnerId,
       },
     }),
@@ -287,7 +330,10 @@ export async function ensureOwnToday(learner: VerifiedLearner, now = studyNow())
     where: { userId: learner.learnerId, lessonDate, active: true },
     include: lessonInclude,
   });
-  if (existing) return presentLesson(existing);
+  if (existing) {
+    if (existing.words.length === 0) return createOfflineLesson(learner, lessonDate, "offline");
+    return presentLesson(existing);
+  }
   return createOfflineLesson(learner, lessonDate, "offline");
 }
 
