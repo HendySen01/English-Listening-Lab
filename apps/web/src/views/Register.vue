@@ -6,7 +6,7 @@
       <p class="login-lede">注册后从自己的课程、词汇和复习开始。原来的练习记录不会带到新账号里。</p>
     </section>
     <section class="login-panel">
-      <form @submit.prevent="register">
+      <form @submit.prevent="register" @keydown.enter.prevent="register">
         <h2>注册</h2>
         <p class="login-help">{{ help }}</p>
         <label>

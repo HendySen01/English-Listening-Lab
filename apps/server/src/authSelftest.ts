@@ -16,6 +16,8 @@ process.env.BETTER_AUTH_URL = "http://127.0.0.1:8787";
 process.env.AUTH_SELFTEST = "1";
 process.env.LLM_API_KEY = "";
 process.env.TTS_API_KEY = "";
+delete process.env.AUTH_SIGNUP_ENABLED;
+delete process.env.VERCEL_ENV;
 
 if (process.argv[2] === "restart") {
   const { createApp } = await import("./app.ts");

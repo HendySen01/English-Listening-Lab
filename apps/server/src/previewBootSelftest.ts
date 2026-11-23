@@ -52,6 +52,13 @@ check("[启动] production 主机被拒绝", rejected({
 }).includes("Refusing"));
 check("[启动] 携带付费模型密钥被拒绝", rejected({ ...development, DEEPSEEK_API_KEY: "sk-test" }).includes("付费"));
 check("[启动] 打开公开注册被拒绝", rejected({ ...development, AUTH_SIGNUP: "open" }).includes("注册"));
+check("[启动] Preview 可以单独启用注册开关", assertPreviewBoot({
+  ...development,
+  VERCEL: "1",
+  VERCEL_ENV: "preview",
+  VERCEL_URL: "english-listening-lab-preview.vercel.app",
+  AUTH_SIGNUP_ENABLED: "1",
+}).mode === "postgres-guarded");
 check("[启动] Production 环境被拒绝", rejected({ ...development, VERCEL: "1", VERCEL_ENV: "production", BETTER_AUTH_URL: "https://lab.example" }).includes("Production"));
 check("[启动] Preview 缺少 https 域名被拒绝", rejected({ ...development, VERCEL: "1", VERCEL_ENV: "preview", BETTER_AUTH_URL: "http://lab.example" }).includes("https"));
 check("[启动] Preview 使用平台域名", assertPreviewBoot({
