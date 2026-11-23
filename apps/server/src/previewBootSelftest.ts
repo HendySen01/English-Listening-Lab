@@ -1,3 +1,4 @@
+import { assertProductionBoot } from "./productionBoot.ts";
 import { assertLocalServerAllowed, assertPreviewBoot } from "./previewBoot.ts";
 
 const failures: string[] = [];
@@ -81,6 +82,31 @@ check("[启动] 本机模拟可以使用回环地址", assertPreviewBoot({
   VERCEL_SIMULATION: "1",
   BETTER_AUTH_URL: "http://127.0.0.1:8798",
 }).mode === "postgres-guarded");
+
+const production = {
+  VERCEL: "1",
+  VERCEL_ENV: "production",
+  BETTER_AUTH_SECRET: "production-secret-production-secret-32",
+  NEON_DATABASE_URL: "postgresql://user:secret@ep-production-branch-pooler.neon.tech/neondb?sslmode=require",
+  NEON_DIRECT_URL: "postgresql://user:secret@ep-production-branch.neon.tech/neondb?sslmode=require",
+};
+check("[启动] Production 拒绝 development 连接", (() => {
+  try {
+    assertProductionBoot({ ...production, NEON_DATABASE_URL: "postgresql://user:secret@ep-holy-flower-be2hbbj4-pooler.neon.tech/neondb?sslmode=require", NEON_DIRECT_URL: "postgresql://user:secret@ep-holy-flower-be2hbbj4.neon.tech/neondb?sslmode=require" });
+    return false;
+  } catch (error) {
+    return error instanceof Error && error.message.includes("development");
+  }
+})());
+check("[启动] Production 没有邀请码时不能开放注册", (() => {
+  try {
+    assertProductionBoot({ ...production, AUTH_SIGNUP_ENABLED: "1" });
+    return false;
+  } catch (error) {
+    return error instanceof Error && error.message.includes("邀请码");
+  }
+})());
+check("[启动] Production 有邀请码时可以通过启动检查", assertProductionBoot({ ...production, AUTH_SIGNUP_ENABLED: "1", AUTH_INVITE_CODE: "invite-test-24" }).mode === "production-guarded");
 
 if (failures.length) {
   console.error(failures.join("\n"));

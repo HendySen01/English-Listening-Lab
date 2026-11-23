@@ -9,6 +9,10 @@
       <form @submit.prevent="register" @keydown.enter.prevent="register">
         <h2>注册</h2>
         <p class="login-help">{{ help }}</p>
+        <label v-if="inviteRequired">
+          邀请码
+          <input v-model="inviteCode" type="password" name="invite-code" autocomplete="off" required :disabled="busy">
+        </label>
         <label>
           邮箱
           <input v-model="email" type="email" name="email" autocomplete="username" inputmode="email" required :disabled="busy">
@@ -42,6 +46,8 @@ import { authClient } from "../lib/authClient";
 
 const router = useRouter();
 const email = ref("");
+const inviteCode = ref("");
+const inviteRequired = ref(false);
 const password = ref("");
 const confirmPassword = ref("");
 const message = ref("");
@@ -66,6 +72,7 @@ function signupFailure(error: { status?: unknown; message?: unknown; code?: unkn
   const status = Number(error.status || 0);
   const code = String(error.code || "");
   const text = String(error.message || "");
+  if (code === "INVITE_REQUIRED" || text.includes("邀请码")) return "邀请码不正确。";
   if (code.includes("SIGN_UP_DISABLED") || text.includes("SIGN_UP_DISABLED")) return "当前环境没有开放注册。";
   if (status === 429 || code.includes("TOO_MANY") || code.includes("RATE")) return "尝试次数太多，请稍后再试。";
   if (code.includes("ALREADY") || /already exists/i.test(text)) return "这个邮箱已经注册。";
@@ -79,8 +86,9 @@ onMounted(async () => {
   try {
     const status = await fetch("/api/signup-status", { credentials: "include" });
     if (!status.ok) return;
-    const body = await status.json() as { enabled?: boolean };
+    const body = await status.json() as { enabled?: boolean; inviteRequired?: boolean };
     signupOpen.value = body.enabled !== false;
+    inviteRequired.value = body.inviteRequired === true;
     if (!signupOpen.value) help.value = "当前环境没有开放注册。已有账号仍可以登录。";
   } catch {
     message.value = "网络异常，还没有确认注册是否开放。";
@@ -104,12 +112,17 @@ async function register() {
     message.value = "两次输入的密码不一致。";
     return;
   }
+  if (inviteRequired.value && inviteCode.value.trim().length < 8) {
+    message.value = "请填写邀请码。";
+    return;
+  }
   busy.value = true;
   try {
     const result = await authClient.signUp.email({
       email: mail,
       password: password.value,
       name: nameFromEmail.value,
+      fetchOptions: inviteRequired.value ? { headers: { "x-lab-invite": inviteCode.value.trim() } } : undefined,
     });
     if (result.error) {
       message.value = signupFailure(result.error);

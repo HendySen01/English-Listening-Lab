@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { APIError, betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { provisionOwnLearner } from "./learnerProvision.js";
@@ -6,6 +8,11 @@ import { authDb, postgresRuntimeRequested } from "./runtimeClients.js";
 import { redactSecrets } from "./serverLog.js";
 
 const clientIpHeader = "x-lab-client-ip";
+const inviteStore = new AsyncLocalStorage<string>();
+
+export function runWithInvite<T>(invite: string, work: () => T) {
+  return inviteStore.run(invite, work);
+}
 const sessionSeconds = 60 * 60 * 24 * 7;
 
 export function authSecret() {
@@ -15,9 +22,30 @@ export function authSecret() {
 }
 
 // 邮件发送还没有配置。注册不把邮箱标成已验证，也不假装发过验证信。
+export function inviteCode(env: NodeJS.ProcessEnv = process.env) {
+  const code = (env.AUTH_INVITE_CODE || "").trim();
+  if (code.length < 8 || code.length > 64 || /\s/.test(code)) return "";
+  return code;
+}
+
+export function inviteConfigured(env: NodeJS.ProcessEnv = process.env) {
+  return inviteCode(env) !== "";
+}
+
+export function inviteAccepted(presented: unknown, env: NodeJS.ProcessEnv = process.env) {
+  if (env.VERCEL_ENV !== "production" && !inviteConfigured(env)) return true;
+  const expected = inviteCode(env);
+  const actual = typeof presented === "string" ? presented.trim() : "";
+  const left = Buffer.from(actual);
+  const right = Buffer.from(expected);
+  if (!expected || left.length !== right.length) return false;
+  return timingSafeEqual(left, right);
+}
+
 export function publicSignupEnabled(env: NodeJS.ProcessEnv = process.env) {
-  if (env.VERCEL_ENV === "production") return false;
-  return env.AUTH_SIGNUP_ENABLED === "1";
+  if (env.AUTH_SIGNUP_ENABLED !== "1") return false;
+  if (env.VERCEL_ENV === "production") return inviteConfigured(env);
+  return true;
 }
 
 export function learnerProvisioningEnabled(env: NodeJS.ProcessEnv = process.env) {
@@ -38,10 +66,23 @@ function signupRequest(context: unknown) {
   const path = typeof record.path === "string" ? record.path : "";
   const url = typeof record.request?.url === "string" ? record.request.url : "";
   if (!`${path} ${url}`.includes("sign-up")) return null;
+  const headers = (record as { headers?: unknown; request?: { headers?: unknown } }).headers
+    ?? (record as { request?: { headers?: unknown } }).request?.headers;
   return {
     email: typeof record.body?.email === "string" ? record.body.email : "",
     password: typeof record.body?.password === "string" ? record.body.password : "",
+    invite: headerValue(headers, "x-lab-invite"),
   };
+}
+
+function headerValue(headers: unknown, name: string) {
+  if (!headers || typeof headers !== "object") return "";
+  if (typeof (headers as Headers).get === "function") return (headers as Headers).get(name) || "";
+  const record = headers as Record<string, unknown>;
+  const value = record[name] ?? record[name.toLowerCase()];
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return String(value[0] || "");
+  return "";
 }
 
 export function secureAuthCookies() {
@@ -79,7 +120,8 @@ function trustedOrigins() {
 function redactAuthLog(value: string) {
   return redactSecrets(value)
     .replace(/better-auth-secret[^\s]*/gi, "[redacted]")
-    .replace(/\b(password|token|secret|authorization)\s*[:=]\s*\S+/gi, "$1=[redacted]");
+    .replace(/\b(password|token|secret|authorization)\s*[:=]\s*\S+/gi, "$1=[redacted]")
+    .replace(/x-lab-invite\s*[:=]\s*\S+/gi, "x-lab-invite=[redacted]");
 }
 
 let auth: ReturnType<typeof betterAuth> | null = null;
@@ -88,7 +130,8 @@ let authKey = "";
 export function getAuth() {
   const secret = authSecret();
   if (!secret) return null;
-  const key = `${secret}\n${process.env.BETTER_AUTH_URL || ""}\n${process.env.AUTH_DATABASE_URL || ""}\n${process.env.AUTH_SELFTEST || ""}\n${process.env.POSTGRES_RUNTIME || ""}\n${publicSignupEnabled() ? "signup" : "no-signup"}\n${process.env.VERCEL_ENV || ""}`;
+  const inviteHash = createHash("sha256").update(inviteCode()).digest("hex").slice(0, 12);
+  const key = `${secret}\n${process.env.BETTER_AUTH_URL || ""}\n${process.env.AUTH_DATABASE_URL || ""}\n${process.env.AUTH_SELFTEST || ""}\n${process.env.POSTGRES_RUNTIME || ""}\n${publicSignupEnabled() ? "signup" : "no-signup"}\n${process.env.VERCEL_ENV || ""}\n${inviteHash}`;
   if (auth && authKey === key) return auth;
   authKey = key;
   auth = betterAuth({
@@ -112,6 +155,9 @@ export function getAuth() {
           async before(user, context) {
             const signup = signupRequest(context);
             if (!signup) return;
+            if (!inviteAccepted(inviteStore.getStore() || signup.invite)) {
+              throw new APIError("FORBIDDEN", { message: "邀请码不正确。", code: "INVITE_REQUIRED" });
+            }
             const issue = passwordIssue(signup.password, signup.email || String(user.email || ""));
             if (issue) throw new APIError("BAD_REQUEST", { message: issue, code: "WEAK_PASSWORD" });
           },

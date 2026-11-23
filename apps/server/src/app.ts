@@ -1,7 +1,7 @@
 import { fromNodeHeaders, toNodeHandler } from "better-auth/node";
 import cors from "cors";
 import express from "express";
-import { clientIpHeader, getAuth, learnerProvisioningEnabled, publicSignupEnabled } from "./auth.js";
+import { clientIpHeader, getAuth, inviteConfigured, learnerProvisioningEnabled, publicSignupEnabled, runWithInvite } from "./auth.js";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -63,7 +63,7 @@ export function createApp() {
       res.status(503).json({ error: "认证尚未配置", code: "AUTH_NOT_CONFIGURED" });
       return;
     }
-    Promise.resolve(toNodeHandler(auth)(req, res)).catch(next);
+    Promise.resolve(runWithInvite(req.get("x-lab-invite") || "", () => toNodeHandler(auth)(req, res))).catch(next);
   });
 
   app.use(cors({ origin: [/^http:\/\/127\.0\.0\.1:\d+$/, /^http:\/\/localhost:\d+$/], credentials: true }));
@@ -72,6 +72,7 @@ export function createApp() {
   app.get("/api/signup-status", (_req, res) => {
     res.json({
       enabled: publicSignupEnabled(),
+      inviteRequired: inviteConfigured(),
       emailDelivery: "unconfigured",
       learnerProvisioning: learnerProvisioningEnabled(),
     });

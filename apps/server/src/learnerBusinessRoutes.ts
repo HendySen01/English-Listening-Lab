@@ -27,7 +27,7 @@ import {
   simplerOwnQuestion,
   updateOwnSettings,
 } from "./learnerApi.js";
-import { assertPaidAiMock } from "./learnerAiGuard.js";
+import { assertPaidAiMock, sendAuthorizedModelProbe } from "./learnerAiGuard.js";
 import { withAiCharge } from "./learnerQuota.js";
 import { resolveRequestLearner } from "./learnerIdentity.js";
 import { studyDate, studyNow } from "./studyTime.js";
@@ -103,10 +103,11 @@ export function mountLearnerBusinessRoutes(app: express.Express) {
     const learner = await learnerOf(req);
     const declared = typeof req.body?.inputTokens === "number" ? req.body.inputTokens : undefined;
     const result = await withAiCharge({ learner, requestId: req.body?.clientRequestId, kind: "probe", inputTokens: declared }, async () => {
+      if (process.env.AI_REAL_CALLS === "1") return sendAuthorizedModelProbe();
       assertPaidAiMock();
       return { ok: true, mocked: true };
     });
-    return { ...result.value, model: "mock", message: "AI 连接成功 · mock" };
+    return { ...result.value, model: result.value.mocked ? "mock" : "deepseek", message: result.value.mocked ? "AI 连接成功 · mock" : "AI 连接成功" };
   });
   route("get", "/api/preview/explain", async (req) => {
     await learnerOf(req);

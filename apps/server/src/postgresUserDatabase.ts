@@ -3,6 +3,7 @@
 import { PrismaClient as NeonAuth } from "./generated/neon-auth/index.js";
 import { PrismaClient as NeonUser } from "./generated/neon-user/index.js";
 import { assertDevelopmentPair, readDotenv } from "../scripts/neon-dev/guard.mjs";
+import { assertProductionBoot } from "./productionBoot.js";
 import { installPostgresClients } from "./runtimeClients.js";
 
 const businessSchema = "lab_phase_h";
@@ -78,6 +79,29 @@ export async function openVerifiedPostgres(source?: NeonPair) {
     `SELECT COUNT(*)::int AS n FROM information_schema.tables WHERE table_schema = '${authSchema}' AND table_name = 'user'`,
   ) as Array<{ n: number }>;
   if (authTable[0].n !== 1) throw new Error("隔离认证表不存在，已拒绝连接 public。");
+  await assertStudySessionGuard(user);
+  installPostgresClients({ learner: user, auth });
+  return { user, auth, identity };
+}
+
+export async function openVerifiedProduction() {
+  const identity = assertProductionBoot();
+  const pooled = process.env.NEON_DATABASE_URL || "";
+  process.env.POSTGRES_RUNTIME = "1";
+  process.env.USER_DATABASE_URL = phaseUrl(pooled, businessSchema, "4");
+  process.env.AUTH_DATABASE_URL = phaseUrl(pooled, authSchema, "1");
+  const user = new NeonUser({ datasources: { db: { url: process.env.USER_DATABASE_URL } } });
+  const auth = new NeonAuth({ datasources: { db: { url: process.env.AUTH_DATABASE_URL } } });
+  const located = await user.$queryRawUnsafe(
+    `SELECT table_schema, table_name FROM information_schema.tables
+     WHERE table_name = 'Learner' AND table_schema IN ('${businessSchema}', 'public')`,
+  ) as Array<{ table_schema: string; table_name: string }>;
+  if (located.some((row) => row.table_schema === "public")) throw new Error("public 中出现 Learner，已拒绝继续。");
+  if (!located.some((row) => row.table_schema === businessSchema)) throw new Error("Production 隔离业务表不存在。启动不会自动迁移。");
+  const authTable = await auth.$queryRawUnsafe(
+    `SELECT COUNT(*)::int AS n FROM information_schema.tables WHERE table_schema = '${authSchema}' AND table_name = 'user'`,
+  ) as Array<{ n: number }>;
+  if (authTable[0].n !== 1) throw new Error("Production 隔离认证表不存在。启动不会自动迁移。");
   await assertStudySessionGuard(user);
   installPostgresClients({ learner: user, auth });
   return { user, auth, identity };

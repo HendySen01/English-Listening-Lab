@@ -194,12 +194,23 @@ try {
   check("[绑定] 重复初始化只有一个 Learner", beforeConcurrent === 0 && first.id === second.id && concurrentCount === 1);
 
   process.env.VERCEL_ENV = "production";
+  delete process.env.AUTH_INVITE_CODE;
   getAuth();
   check("[开关] Production 即使打开标记也保持关闭", publicSignupEnabled() === false);
   const productionSignup = await signup("production-reg@lab.test");
   const productionText = await productionSignup.text();
   const productionLogin = await signIn("alpha-reg@lab.test");
   check("[开关] Production 拒绝注册且不影响登录", productionSignup.status >= 400 && productionText.includes("EMAIL_PASSWORD_SIGN_UP_DISABLED") && productionLogin.status === 200 && await getAuthPrisma().user.count({ where: { email: "production-reg@lab.test" } }) === 0, productionText);
+  await getAuthPrisma().rateLimit.deleteMany();
+  process.env.AUTH_INVITE_CODE = "invite-test-24";
+  getAuth();
+  const missingInvite = await signup("invite-missing@lab.test");
+  const wrongInvite = await signup("invite-wrong@lab.test", password, { "x-lab-invite": "wrong-code-24" });
+  const invited = await signup("invite-ok@lab.test", password, { "x-lab-invite": "invite-test-24" });
+  const invitedUser = await getAuthPrisma().user.findUnique({ where: { email: "invite-ok@lab.test" } });
+  check("[邀请] 缺少或错误的邀请码不会创建用户", missingInvite.status === 403 && wrongInvite.status === 403 && await getAuthPrisma().user.count({ where: { email: { in: ["invite-missing@lab.test", "invite-wrong@lab.test"] } } }) === 0);
+  check("[邀请] 正确邀请码可以注册且不标成已验证", publicSignupEnabled() === true && invited.status === 200 && invitedUser?.emailVerified === false);
+  delete process.env.AUTH_INVITE_CODE;
   delete process.env.VERCEL_ENV;
   delete process.env.AUTH_SIGNUP_ENABLED;
   getAuth();
