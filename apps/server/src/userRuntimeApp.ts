@@ -19,6 +19,7 @@ import {
   recordReview,
   updateOwnProgressReps,
 } from "./learnerScope.js";
+import { denyUnscopedApi, mountLearnerBusinessRoutes } from "./learnerBusinessRoutes.js";
 import { redactSecrets, reportServerError } from "./serverLog.js";
 import { assertUserRuntimeEnabled } from "./userDatabase.js";
 
@@ -56,6 +57,7 @@ export function createUserRuntimeApp() {
   });
   app.use(cors({ origin: [/^http:\/\/127\.0\.0\.1:\d+$/, /^http:\/\/localhost:\d+$/], credentials: true }));
   app.use(express.json({ limit: "1mb" }));
+  mountLearnerBusinessRoutes(app);
 
   app.get("/api/user-runtime/health", (_req, res) => {
     res.json({ ok: true });
@@ -179,6 +181,8 @@ export function createUserRuntimeApp() {
       next(error);
     }
   });
+
+  app.use("/api", denyUnscopedApi);
 
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     if (error instanceof AppError) {

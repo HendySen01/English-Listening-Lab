@@ -17,6 +17,14 @@ export function secureAuthCookies() {
   return base.startsWith("https://") || process.env.NODE_ENV === "production" || Boolean(process.env.VERCEL);
 }
 
+export function isTrustedRequestOrigin(origin: string) {
+  if (!origin) return false;
+  return trustedOrigins().some((pattern) => {
+    if (pattern.endsWith("*")) return origin.startsWith(pattern.slice(0, -1));
+    return origin === pattern;
+  });
+}
+
 function trustedOrigins() {
   const configured = (process.env.BETTER_AUTH_TRUSTED_ORIGINS || "")
     .split(",")

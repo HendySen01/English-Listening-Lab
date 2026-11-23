@@ -475,7 +475,7 @@ try {
   const runtimeHealthText = await runtimeHealth.text();
   check("[HTTP] 运行时健康检查不返回连接信息", runtimeHealth.status === 200 && runtimeHealthText === "{\"ok\":true}");
   const oldLessons = await fetch(`${base}/api/lessons`);
-  check("[HTTP] 运行时没有开放原业务课程接口", oldLessons.status === 404);
+  check("[HTTP] 运行时的业务课程接口拒绝未登录", oldLessons.status === 401);
 
   const anonymous = await api("/api/user-runtime/lessons");
   const anonymousWrite = await api("/api/user-runtime/reviews", "", {

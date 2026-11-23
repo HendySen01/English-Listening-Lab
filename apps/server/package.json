@@ -10,7 +10,7 @@
     "user:generate": "node scripts/user/generate.mjs",
     "user-runtime": "tsx src/userRuntime.ts",
     "postinstall": "prisma generate && prisma generate --schema prisma-auth/schema.prisma && node scripts/user/generate.mjs",
-    "test": "tsx src/selftest.ts && tsx src/authSelftest.ts && tsx src/userDrillSelftest.ts && tsx src/userRuntimeSelftest.ts"
+    "test": "tsx src/selftest.ts && tsx src/authSelftest.ts && tsx src/userDrillSelftest.ts && tsx src/userRuntimeSelftest.ts && tsx src/userApiSelftest.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.0",
