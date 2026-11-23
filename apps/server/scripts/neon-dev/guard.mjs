@@ -10,6 +10,7 @@ const expectedEndpoint = "ep-holy-flower-be2hbbj4";
 export function redact(value) {
   return String(value ?? "")
     .replace(/postgres(?:ql)?:\/\/\S+/gi, "[redacted-url]")
+    .replace(/ep-[a-z0-9-]+(?:-pooler)?\.[a-z0-9.-]*neon\.tech/gi, "[redacted-host]")
     .replace(/\bnpg_[A-Za-z0-9]+\b/g, "[redacted]");
 }
 
