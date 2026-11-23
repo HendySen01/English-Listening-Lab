@@ -6,6 +6,7 @@ import { setPaidAiMock } from "./learnerAiGuard.ts";
 
 const source = fs.readFileSync(new URL("./vercelPreview.ts", import.meta.url), "utf8");
 const indexSource = fs.readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+const detectedSource = fs.readFileSync(new URL("../app.ts", import.meta.url), "utf8");
 const failures: string[] = [];
 function check(name: string, condition: boolean, detail = "") {
   if (!condition) failures.push(detail ? `${name} :: ${detail}` : name);
@@ -13,6 +14,7 @@ function check(name: string, condition: boolean, detail = "") {
 }
 check("[入口] 预览入口不挂载旧的单用户应用", !source.includes("createApp") && !source.includes("listen(") && !source.includes("migrate"));
 check("[入口] 8787 入口不引用预览应用", indexSource.includes("8787") && !indexSource.includes("vercelPreview"));
+check("[入口] Express 优先选择预览入口", detectedSource.includes('from "./src/vercelPreview.js"') && detectedSource.includes('import express'));
 
 const envFile = readDotenv(new URL("../.env.neon.development", import.meta.url));
 function withSchema(raw: string, schema: string) {
