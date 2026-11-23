@@ -1,7 +1,7 @@
 import { computed, ref, watch, type Ref } from "vue"
 import { lookupAnalysis, type Analysis } from "./reader-data"
 
-export type ExplainSource = "sample" | "cache" | "live" | "missing" | "error"
+export type ExplainSource = "sample" | "cache" | "live" | "mock" | "missing" | "error"
 
 export function useExplanation(passageId: Ref<string>, word: Ref<string>, sentence: Ref<string>) {
   const remote = ref<Analysis | null>(null)
@@ -43,7 +43,7 @@ export function useExplanation(passageId: Ref<string>, word: Ref<string>, senten
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || "解析失败")
       remote.value = data.analysis as Analysis
-      source.value = data.source === "cache" ? "cache" : "live"
+      source.value = data.source === "cache" ? "cache" : data.source === "mock" ? "mock" : "live"
     } catch (cause) {
       source.value = sample.value ? "sample" : "error"
       error.value = cause instanceof Error ? cause.message : "解析失败"

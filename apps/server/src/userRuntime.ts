@@ -1,7 +1,9 @@
 import "dotenv/config";
+import { setPaidAiMock } from "./learnerAiGuard.js";
 import { createUserRuntimeApp } from "./userRuntimeApp.js";
 import { assertLocalServerAllowed } from "./previewBoot.js";
 import { assertUserRuntimeEnabled } from "./userDatabase.js";
+if (process.env.LAB_AI_MOCK === "1") setPaidAiMock(() => undefined);
 
 assertLocalServerAllowed();
 assertUserRuntimeEnabled();

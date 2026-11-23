@@ -120,6 +120,9 @@ a.choice:focus-visible, a.text-button:focus-visible, a.rd-pill:focus-visible {
   box-shadow: inset 3px 0 0 #f4f1e8;
 }
 .choice, .text-button, .step, .play {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 44px;
   border: 1px solid var(--line);
   background: var(--paper);
@@ -247,19 +250,13 @@ html.dark .week-bars i { background: #6d806c; }
 .day-copy .muted { margin: 6px 0 0; }
 .day-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .day-actions .choice { min-width: 132px; }
-.home-hero > .choice,
-.day-actions > .choice {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
 .version-line { padding-top: 4px; border-top: 1px solid var(--line); }
 .version-list { display: grid; gap: 8px; margin-top: 10px; }
 .version-row { padding: 8px 0; }
 .detail-panel { margin-top: 4px; padding-top: 14px; border-top: 1px solid var(--line); }
 .settings-shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; align-items: start; }
 .settings-nav { display: grid; gap: 6px; }
-.settings-nav button { text-align: left; }
+.settings-nav button { justify-content: flex-start; text-align: left; }
 .stat { padding: 12px 0; border-top: 1px solid var(--line); }
 .stat b { display: block; font-family: Georgia, "Palatino Linotype", serif; font-size: 34px; font-variant-numeric: tabular-nums; line-height: 1; }
 .grid { display: grid; grid-template-columns: 1.4fr 0.8fr; gap: 14px; }

@@ -7,7 +7,7 @@ import { practiceOwnWord, rateOwnWord } from "./learnerReview.js";
 import { AppError } from "./errors.js";
 import { THEME_ZH } from "./content.js";
 import { addStudyDays, readStudyTimeZone, studyDate, studyDayBounds, studyNow } from "./studyTime.js";
-import type { RatingName } from "./srs.js";
+import { previewDays, type RatingName } from "./srs.js";
 import { learnerDb } from "./runtimeClients.js";
 
 function db() {
@@ -33,6 +33,36 @@ const lessonFields = {
   userId: true,
 } as const;
 
+function presentProgress(raw: string) {
+  const parsed = raw ? JSON.parse(raw) as Record<string, unknown> : {};
+  const listening = parsed.listening && typeof parsed.listening === "object" ? parsed.listening as Record<string, unknown> : {};
+  const shadow = parsed.shadow && typeof parsed.shadow === "object" ? parsed.shadow as Record<string, unknown> : {};
+  return {
+    step: typeof parsed.step === "string" ? parsed.step : "review",
+    completed: Array.isArray(parsed.completed) ? parsed.completed : [],
+    wordIndex: Number.isInteger(parsed.wordIndex) ? parsed.wordIndex : 0,
+    listening: {
+      round: typeof listening.round === "number" ? listening.round : 1,
+      firstGist: typeof listening.firstGist === "string" ? listening.firstGist : "",
+      thirdGist: typeof listening.thirdGist === "string" ? listening.thirdGist : "",
+      recall: typeof listening.recall === "string" ? listening.recall : "",
+      recallNote: typeof listening.recallNote === "string" ? listening.recallNote : "",
+      recallMode: typeof listening.recallMode === "string" ? listening.recallMode : "",
+    },
+    shadow: {
+      index: typeof shadow.index === "number" ? shadow.index : 0,
+      marks: Array.isArray(shadow.marks) ? shadow.marks : [],
+    },
+  };
+}
+
+function sourceLabel(source: string) {
+  if (source === "ai") return "AI 生成";
+  if (source === "demo") return "示范课";
+  if (source === "offline") return "离线词库";
+  return "当前账号课程";
+}
+
 function presentLesson(lesson: {
   id: string;
   lessonDate: string;
@@ -49,8 +79,48 @@ function presentLesson(lesson: {
   listeningChunks: string;
   listeningGloss: string;
   progress: string;
-  words?: Array<{ id: string; lemma: string; meaningZh: string; progress: { reps: number; due: Date; familiarity: string } | null }>;
-  questions?: Array<{ id: string; prompt: string; options: string; answerIndex: number; attempts: Array<{ selected: number; correct: boolean }> }>;
+  words?: Array<{
+    id: string;
+    lemma: string;
+    pos: string;
+    ipa: string | null;
+    ipaNote: string;
+    stress: string | null;
+    meaningZh: string;
+    definitionEn: string;
+    collocation: string;
+    example: string;
+    exampleZh: string;
+    morphology: string | null;
+    knownAlready: boolean;
+    progress: {
+      due: Date;
+      stability: number;
+      difficulty: number;
+      elapsedDays: number;
+      scheduledDays: number;
+      learningSteps: number;
+      reps: number;
+      lapses: number;
+      state: number;
+      lastReview: Date | null;
+      familiarity: string;
+      correctCount: number;
+      incorrectCount: number;
+    } | null;
+  }>;
+  questions?: Array<{
+    id: string;
+    kind: string;
+    prompt: string;
+    options: string;
+    answerIndex: number;
+    explanationEn: string | null;
+    explanationZh: string | null;
+    evidence: string | null;
+    whyWrong: string;
+    attempts: Array<{ selected: number; correct: boolean }>;
+  }>;
 }) {
   return {
     id: lesson.id,
@@ -63,8 +133,9 @@ function presentLesson(lesson: {
     newWordCount: lesson.newWordCount,
     estimatedMinutes: lesson.estimatedMinutes,
     source: lesson.source,
+    sourceLabel: sourceLabel(lesson.source),
     model: lesson.model,
-    progress: JSON.parse(lesson.progress),
+    progress: presentProgress(lesson.progress),
     listening: {
       title: lesson.listeningTitle,
       text: lesson.listeningText,
@@ -74,21 +145,42 @@ function presentLesson(lesson: {
     words: (lesson.words || []).map((word) => ({
       id: word.id,
       lemma: word.lemma,
+      pos: word.pos,
+      ipa: word.ipa,
+      ipaNote: word.ipaNote,
+      stress: word.stress,
       meaningZh: word.meaningZh,
+      definitionEn: word.definitionEn,
+      collocation: word.collocation,
+      example: word.example,
+      exampleZh: word.exampleZh,
+      morphology: word.morphology ? JSON.parse(word.morphology) : null,
+      knownAlready: word.knownAlready,
+      familiarity: word.progress?.familiarity ?? "new",
       reps: word.progress?.reps ?? 0,
       due: word.progress?.due ?? null,
-      familiarity: word.progress?.familiarity ?? "new",
+      lastReview: word.progress?.lastReview ?? null,
+      lapses: word.progress?.lapses ?? 0,
+      state: word.progress?.state ?? 0,
+      correctCount: word.progress?.correctCount ?? 0,
+      incorrectCount: word.progress?.incorrectCount ?? 0,
+      intervals: word.progress ? previewDays(word.progress, new Date()) : null,
     })),
     questions: (lesson.questions || []).map((question) => {
       const attempt = question.attempts[question.attempts.length - 1];
       return {
         id: question.id,
+        kind: question.kind,
         prompt: question.prompt,
         options: JSON.parse(question.options) as string[],
         answered: Boolean(attempt),
         selected: attempt?.selected ?? null,
         correct: attempt?.correct ?? null,
         answerIndex: attempt ? question.answerIndex : null,
+        explanationEn: attempt ? question.explanationEn : null,
+        explanationZh: attempt ? question.explanationZh : null,
+        evidence: attempt ? question.evidence : null,
+        whyWrong: attempt ? JSON.parse(question.whyWrong) : null,
       };
     }),
   };
@@ -114,7 +206,9 @@ export async function ownLessons(learner: VerifiedLearner) {
     difficulty: lesson.difficulty,
     newWordCount: lesson.newWordCount,
     source: lesson.source,
+    sourceLabel: sourceLabel(lesson.source),
     listeningTitle: lesson.listeningTitle,
+    progress: presentProgress(lesson.progress),
   }));
 }
 
@@ -125,11 +219,12 @@ export async function ownLesson(learner: VerifiedLearner, id: string) {
 }
 
 export async function ownLessonVersions(learner: VerifiedLearner, lessonDate: string) {
-  return db().dailyLesson.findMany({
+  const lessons = await db().dailyLesson.findMany({
     where: { userId: learner.learnerId, lessonDate },
     select: { id: true, version: true, active: true, source: true, model: true, createdAt: true },
     orderBy: { version: "asc" },
   });
+  return lessons.map((lesson) => ({ ...lesson, sourceLabel: sourceLabel(lesson.source) }));
 }
 
 export async function activateOwnLesson(learner: VerifiedLearner, id: string) {
@@ -214,8 +309,16 @@ export async function ownLibrary(learner: VerifiedLearner) {
   return words.map((word) => ({
     id: word.id,
     lemma: word.lemma,
+    pos: word.pos,
+    ipa: word.ipa,
+    ipaNote: word.ipaNote,
     meaningZh: word.meaningZh,
+    definitionEn: word.definitionEn,
+    collocation: word.collocation,
     example: word.example,
+    exampleZh: word.exampleZh,
+    morphology: word.morphology ? JSON.parse(word.morphology) : null,
+    knownAlready: word.knownAlready,
     familiarity: word.progress?.familiarity ?? "new",
     reps: word.progress?.reps ?? 0,
     lapses: word.progress?.lapses ?? 0,
@@ -227,6 +330,7 @@ export async function ownLibrary(learner: VerifiedLearner) {
     stability: word.progress?.stability ?? null,
     lessonId: word.lesson?.id ?? null,
     lessonDate: word.lesson?.lessonDate ?? null,
+    lessonTitle: word.lesson?.listeningTitle ?? "",
     userId: word.userId,
   }));
 }
@@ -344,13 +448,23 @@ export async function ownSettings(learner: VerifiedLearner) {
 export async function updateOwnSettings(learner: VerifiedLearner, input: Record<string, unknown>) {
   const current = await ownSettings(learner);
   const themes = Object.keys(THEME_ZH);
+  const levels = ["A1", "A2", "A2+", "B1", "B1+", "B2", "CET-4", "match"];
+  const modes = ["light", "dark", "system"];
+  const rates = [0.8, 0.9, 1, 1.1, 1.2];
   return db().userSettings.update({
     where: { userId: learner.learnerId },
     data: {
       dailyNewWords: clamp(input.dailyNewWords, 3, 20, current.dailyNewWords),
       dailyMinutes: clamp(input.dailyMinutes, 20, 180, current.dailyMinutes),
+      difficulty: levels.includes(String(input.difficulty)) ? String(input.difficulty) : current.difficulty,
+      listeningLevel: levels.includes(String(input.listeningLevel)) ? String(input.listeningLevel) : current.listeningLevel,
       theme: themes.includes(String(input.theme)) ? String(input.theme) : current.theme,
       customTheme: String(input.customTheme ?? current.customTheme).slice(0, 40),
+      autoGenerate: typeof input.autoGenerate === "boolean" ? input.autoGenerate : current.autoGenerate,
+      wordPartsEnabled: typeof input.wordPartsEnabled === "boolean" ? input.wordPartsEnabled : current.wordPartsEnabled,
+      recommendationsEnabled: typeof input.recommendationsEnabled === "boolean" ? input.recommendationsEnabled : current.recommendationsEnabled,
+      colorMode: modes.includes(String(input.colorMode)) ? String(input.colorMode) : current.colorMode,
+      speechRate: rates.includes(Number(input.speechRate)) ? Number(input.speechRate) : current.speechRate,
       updatedAt: new Date(),
     },
   });
@@ -365,10 +479,11 @@ function clamp(value: unknown, min: number, max: number, fallback: number) {
 export async function ownDashboard(learner: VerifiedLearner, now = studyNow()) {
   const settings = await ownSettings(learner);
   const today = studyDate(now);
-  const lesson = await db().dailyLesson.findFirst({
+  const lessonRow = await db().dailyLesson.findFirst({
     where: { userId: learner.learnerId, lessonDate: today, active: true },
-    select: { id: true, lessonDate: true, theme: true, newWordCount: true },
+    include: lessonInclude,
   });
+  const lesson = lessonRow ? presentLesson(lessonRow) : null;
   const dueCount = await db().wordProgress.count({
     where: { userId: learner.learnerId, reps: { gt: 0 }, due: { lte: now } },
   });
@@ -391,24 +506,82 @@ export async function ownDashboard(learner: VerifiedLearner, now = studyNow()) {
     const lessonCount = historyRows.filter((item) => item.lessonDate === date).length;
     week.push({ date, minutes: sessions.reduce((sum, item) => sum + item.minutes, 0), lessonCount, hasLesson: lessonCount > 0 });
   }
-  return { date: today, studyTimeZone: readStudyTimeZone(), dueCount, lesson, week, history, settings: { theme: settings.theme, dailyNewWords: settings.dailyNewWords } };
+  const todayBounds = studyDayBounds(today);
+  const reviewedToday = await db().wordProgress.count({
+    where: { userId: learner.learnerId, lastReview: { gte: todayBounds.start, lt: todayBounds.end } },
+  });
+  const upcomingRows = await db().wordProgress.findMany({
+    where: { userId: learner.learnerId, reps: { gt: 0 } },
+    include: { vocabulary: true },
+    orderBy: { due: "asc" },
+    take: 5,
+  });
+  return {
+    date: today,
+    dateLabel: today,
+    studyTimeZone: readStudyTimeZone(),
+    dueCount,
+    lesson,
+    week,
+    history,
+    settings,
+    themeLabel: settings.theme === "Custom" ? settings.customTheme || "自定义" : THEME_ZH[settings.theme] || settings.theme,
+    estimatedMinutes: lesson?.estimatedMinutes ?? settings.dailyMinutes,
+    reviewedToday,
+    upcoming: upcomingRows.map((row) => ({
+      id: row.vocabularyId,
+      lemma: row.vocabulary.lemma,
+      meaningZh: row.vocabulary.meaningZh,
+      due: row.due,
+      lastReview: row.lastReview,
+      familiarity: row.familiarity,
+    })),
+    recommendation: settings.recommendationsEnabled
+      ? { tone: "wait", text: "最近的答题和复习记录还不够，先不判断你的水平有没有变化。" }
+      : null,
+    generateError: "",
+  };
 }
 
-export async function ownReviewQueue(learner: VerifiedLearner, now = new Date()) {
+export async function ownReviewQueue(learner: VerifiedLearner, now = new Date(), filter = "due", query = "") {
   const rows = await db().wordProgress.findMany({
-    where: { userId: learner.learnerId, reps: { gt: 0 }, due: { lte: now } },
+    where: { userId: learner.learnerId },
     include: { vocabulary: true },
     orderBy: { due: "asc" },
   });
+  const soon = now.getTime() + 48 * 60 * 60 * 1000;
+  const needle = query.trim().toLowerCase();
+  const matched = rows.filter((row) => {
+    const word = row.vocabulary;
+    if (needle && !word.lemma.toLowerCase().includes(needle) && !word.meaningZh.includes(query.trim())) return false;
+    if (filter === "due") return row.reps > 0 && row.due <= now && !word.knownAlready;
+    if (filter === "soon") return row.due.getTime() > now.getTime() && row.due.getTime() <= soon;
+    if (filter === "weak") return row.familiarity === "forgot" || row.familiarity === "hard" || row.lapses > 0;
+    if (filter === "known") return word.knownAlready || row.familiarity === "easy";
+    return row.reps > 0 || word.knownAlready;
+  });
   return {
-    dueCount: rows.length,
-    items: rows.map((row) => ({
+    dueCount: rows.filter((row) => row.reps > 0 && row.due <= now && !row.vocabulary.knownAlready).length,
+    items: matched.map((row) => ({
       id: row.vocabularyId,
       lemma: row.vocabulary.lemma,
+      pos: row.vocabulary.pos,
+      ipa: row.vocabulary.ipa,
+      meaningZh: row.vocabulary.meaningZh,
+      example: row.vocabulary.example,
+      exampleZh: row.vocabulary.exampleZh,
+      familiarity: row.familiarity,
       reps: row.reps,
       due: row.due,
+      lastReview: row.lastReview,
+      lapses: row.lapses,
+      state: row.state,
+      correctCount: row.correctCount,
+      incorrectCount: row.incorrectCount,
+      knownAlready: row.vocabulary.knownAlready,
       stability: row.stability,
       userId: row.userId,
+      intervals: previewDays(row, now),
     })),
   };
 }
@@ -459,7 +632,25 @@ export async function explainOwnedPassage(learner: VerifiedLearner, passageId: s
   const declared = typeof inputTokens === "number" ? inputTokens : undefined;
   const result = await withAiCharge({ learner, requestId: clientRequestId, kind: "explain", inputTokens: declared }, async () => {
     assertPaidAiMock();
-    return { ok: true, charged: true, mocked: true, passageId };
+    return {
+      ok: true,
+      charged: true,
+      mocked: true,
+      source: "mock",
+      passageId,
+      analysis: {
+        text: word || "word",
+        type: "word",
+        pronunciation: "",
+        partOfSpeech: "",
+        definition: "这是 Mock 解析，没有调用真实模型。",
+        usage: sentence ? `Mock 只说明这句：${sentence}` : "Mock 解析。",
+        etymology: { prefix: "", root: "", suffix: "", origin: "", originalImage: "没有调用模型，不提供词源结论。", certainty: "mock" },
+        semanticRoutes: [],
+        comparisons: [],
+        examples: [],
+      },
+    };
   });
   return result.value;
 }

@@ -117,6 +117,7 @@ const props = defineProps<{
 }>()
 defineEmits<{ speak: [text: string]; mark: [value: "known" | "again"]; explain: [] }>()
 const sourceLabel = computed(() => {
+  if (props.source === "mock") return "Mock 解析。没有调用真实模型。"
   if (props.source === "live") return "实时 AI。刚刚由 DeepSeek 生成，并写入了预览缓存。"
   if (props.source === "cache") return "AI 缓存。同一句子和词再次打开时直接读取，没有再次调用。"
   if (props.source === "sample") return "静态示范。结构与 Context Reader 一致，不是这次的模型回复。"
@@ -124,7 +125,7 @@ const sourceLabel = computed(() => {
 })
 const explainLabel = computed(() => {
   if (props.loading) return "正在解析"
-  if (props.source === "cache" || props.source === "live") return "已载入 AI 解释"
+  if (props.source === "cache" || props.source === "live" || props.source === "mock") return "已载入 AI 解释"
   return "AI 深度解析"
 })
 const deep = ref(false)

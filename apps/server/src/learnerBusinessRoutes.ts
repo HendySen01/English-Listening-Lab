@@ -79,8 +79,18 @@ export function mountLearnerBusinessRoutes(app: express.Express) {
   };
 
   route("get", "/api/system", async (req) => {
-    await learnerOf(req);
-    return { ok: true, ai: "mock-only" };
+    const quota = await ownQuota(await learnerOf(req));
+    return {
+      ok: true,
+      ai: "mock-only",
+      llmState: "仅 Mock，未连接真实模型",
+      llmProvider: "mock",
+      llmModel: "mock",
+      aiUsedToday: quota.userUsed,
+      aiDailyLimit: quota.userLimit,
+      ttsState: "未启用",
+      ttsNote: "隔离运行时只使用浏览器语音。",
+    };
   });
   route("get", "/api/ai/quota", async (req) => ownQuota(await learnerOf(req)));
   route("post", "/api/ai/test", async (req) => {
@@ -90,7 +100,7 @@ export function mountLearnerBusinessRoutes(app: express.Express) {
       assertPaidAiMock();
       return { ok: true, mocked: true };
     });
-    return result.value;
+    return { ...result.value, model: "mock", message: "AI 连接成功 · mock" };
   });
   route("get", "/api/preview/explain", async (req) => {
     await learnerOf(req);
@@ -118,7 +128,12 @@ export function mountLearnerBusinessRoutes(app: express.Express) {
   route("post", "/api/lessons/:id/recall", async (req) => recallOwnLesson(await learnerOf(req), req.params.id, String(req.body?.text || "")));
   route("post", "/api/vocabulary/:id/known", async (req) => rateOwnWord(await learnerOf(req), req.params.id, "easy", "recall", req.body?.clientRequestId, req.body?.progress, true));
   route("post", "/api/vocabulary/:id/easier", async (req) => easierOwnExample(await learnerOf(req), req.params.id, req.body?.clientRequestId, req.body?.inputTokens));
-  route("get", "/api/review", async (req) => ownReviewQueue(await learnerOf(req)));
+  route("get", "/api/review", async (req) => ownReviewQueue(
+    await learnerOf(req),
+    new Date(),
+    String(req.query.filter || "due"),
+    String(req.query.q || ""),
+  ));
   route("post", "/api/review/:id/practice", async (req) => {
     const learner = await learnerOf(req);
     if (req.body?.formal === true) {
