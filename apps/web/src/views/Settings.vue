@@ -47,6 +47,7 @@
       <p class="muted">今天 {{ system?.aiUsedToday || 0 }} / {{ system?.aiDailyLimit }} 次。输入 token {{ system?.promptTokens ?? "未知" }}，输出 token {{ system?.completionTokens ?? "未知" }}。没有可靠单价时不估算费用。</p>
       <p v-if="system?.lastError" class="bad">最近失败：{{ system.lastError }}</p>
       <p class="muted">语境深度解析在单词或语境页里单独点击，会按句子写入解释缓存，不会在这里自动运行。</p>
+      <p v-if="aiMessage" :class="aiError ? 'bad' : 'ok'">{{ aiMessage }}</p>
       <button class="choice" @click="testAi">测试课程生成连接</button>
     </article>
     <article class="card stack" v-show="section === 'voice'">
@@ -108,6 +109,8 @@ const form = ref<any>(null);
 const system = ref<any>(null);
 const message = ref("");
 const error = ref(false);
+const aiMessage = ref("");
+const aiError = ref(false);
 const browserVoices = ref("正在检查");
 
 async function save() {
@@ -127,12 +130,12 @@ async function testAi() {
   if (!confirm("测试会向当前语言模型发送一次很短的请求，可能产生少量费用。继续吗？")) return;
   try {
     const result = await api<{ model: string; message?: string }>("/api/ai/test", { method: "POST", body: JSON.stringify({ confirmCost: true }) });
-    message.value = result.message || `AI 连接成功 · ${result.model}`;
-    error.value = false;
+    aiMessage.value = result.message || `AI 连接成功 · ${result.model}`;
+    aiError.value = false;
     system.value = await api("/api/system");
   } catch (err) {
-    message.value = err instanceof Error ? err.message : "测试失败";
-    error.value = true;
+    aiMessage.value = err instanceof Error ? err.message : "测试失败";
+    aiError.value = true;
     system.value = await api("/api/system");
   }
 }

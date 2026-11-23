@@ -31,10 +31,15 @@
       <p v-if="data.quizTotal">作答 {{ data.quizTotal }} 次，答对 {{ data.quizCorrect }} 次。</p>
       <p v-else class="muted">暂无足够数据。还没有保存的理解题记录，这里不显示提升百分比。</p>
     </article>
-    <details class="card">
+    <details class="card" open>
       <summary>AI 使用详情</summary>
-      <p v-if="!data.usage.length" class="muted">还没有调用记录。这不是学习成果。</p>
-      <p v-for="item in data.usage" :key="item.createdAt + item.kind">{{ item.kind }} · {{ item.model }} · {{ item.success ? "成功" : "失败" }} · 输入 {{ item.promptTokens ?? "未知" }} / 输出 {{ item.completionTokens ?? "未知" }} token</p>
+      <h4>额度记录</h4>
+      <p v-if="data.charges == null" class="muted">当前接口没有返回 AiCharge 额度记录。这里不会把缺失的额度显示成零次使用。</p>
+      <p v-else-if="!data.charges.length" class="muted">还没有 AiCharge 额度记录。</p>
+      <p v-for="item in data.charges || []" :key="'charge-' + item.createdAt + item.kind">{{ item.mock ? "Mock 额度" : "额度记录" }} · {{ item.kind }} · {{ item.status }} · {{ item.studyDate }}</p>
+      <h4>历史调用</h4>
+      <p v-if="!data.usage.length" class="muted">还没有 AIUsageRecord 历史记录。额度预留和历史调用分属两张表，空的历史记录不是零次额度。</p>
+      <p v-for="item in data.usage" :key="'usage-' + item.createdAt + item.kind">{{ item.model === "mock" ? "Mock 历史" : "历史调用" }} · {{ item.kind }} · {{ item.model }} · {{ item.success ? "成功" : "失败" }} · 输入 {{ item.promptTokens ?? "未知" }} / 输出 {{ item.completionTokens ?? "未知" }} token</p>
     </details>
   </section>
   <p v-else>正在读取学习记录……</p>

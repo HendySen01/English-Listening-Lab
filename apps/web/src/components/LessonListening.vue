@@ -12,7 +12,7 @@
       <span class="rd-segment" role="group" aria-label="语速">
         <button v-for="item in rates" :key="item" class="rd-pill" type="button" :aria-pressed="rate === item" @click="setRate(item)">{{ item }}×</button>
       </span>
-      <span class="rd-source">{{ voice }} · 浏览器语音，不是在线语音</span>
+      <span class="rd-source">{{ speech.sourceLabel.value }} · {{ speech.status.value }}<template v-if="speech.detail.value"> · {{ speech.detail.value }}</template> · 在线 TTS 未启用</span>
     </div>
     <label v-if="stage === 0" class="rd-note">这段话大概在说什么？
       <textarea v-model="lesson.progress.listening.firstGist" class="rd-field" rows="3" placeholder="用简体中文写一句大意" @change="emit('save')"></textarea>
@@ -64,7 +64,6 @@ const stage = ref(Math.max(0, Math.min(3, (props.lesson.progress.listening.round
 const selected = ref("")
 const rate = ref(1)
 const rates = [0.8, 1, 1.2]
-const voice = ref("尚未播放")
 const speech = useSpeech()
 const passages = computed(() => {
   const chunks = props.lesson.listening.chunks.filter(Boolean)
@@ -95,7 +94,6 @@ function setStage(next: number) {
 async function speak(text: string) {
   speech.stop()
   await speech.play(text, rate.value, false)
-  voice.value = `语速 ${rate.value}× · ${speech.sourceLabel.value.includes("在线") ? "在线语音" : "浏览器语音"}`
 }
 function setRate(next: number) {
   rate.value = next

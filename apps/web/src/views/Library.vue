@@ -21,6 +21,7 @@
           <h2 class="rd-word" style="font-size: 40px" translate="no">{{ current.lemma }}</h2>
           <button class="rd-icon" type="button" :aria-label="`朗读 ${current.lemma}`" @click="speak(current.lemma)"><Volume2 aria-hidden="true" :size="16" /></button>
         </div>
+        <p v-if="speech.status.value !== '空闲' || speech.detail.value" class="rd-status" role="status">{{ speech.sourceLabel.value }} · {{ speech.status.value }}<template v-if="speech.detail.value"> · {{ speech.detail.value }}</template></p>
         <p class="rd-meta"><span translate="no">{{ current.ipa || "没有可靠音标" }}</span><span>·</span><span>{{ current.pos }}</span></p>
         <p class="rd-copy">{{ current.meaningZh }}</p>
         <p v-if="current.definitionEn" class="rd-copy">{{ current.definitionEn }}</p>

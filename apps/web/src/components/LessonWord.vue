@@ -11,7 +11,7 @@
           <span>·</span>
           <span>{{ word.pos }}</span>
           <span>·</span>
-          <span>{{ voice }}</span>
+          <span>{{ speech.sourceLabel.value }} · {{ speech.status.value }}</span>
           <button class="rd-pill" type="button" @click="speak(word.example)">读例句</button>
           <span class="rd-segment" role="group" aria-label="语速">
             <button v-for="item in rates" :key="item" class="rd-pill" type="button" :aria-pressed="rate === item" @click="rate = item">{{ item }}×</button>
@@ -20,6 +20,7 @@
         <p class="rd-sentence" style="font-size: clamp(22px, 2.4vw, 32px)" translate="no">{{ word.example }}</p>
         <BlurText :text="word.exampleZh" :clear="clear" @toggle="clear = !clear" />
         <p v-if="word.collocation" class="rd-copy">搭配：{{ word.collocation }}</p>
+        <p v-if="speech.detail.value" class="rd-status" role="status">{{ speech.detail.value }}</p>
         <p v-if="message" class="rd-status" role="status">{{ message }}</p>
       </div>
       <ReaderNotes
@@ -61,7 +62,6 @@ const clear = ref(false)
 const mark = ref<"" | "known" | "again">(props.word.knownAlready ? "known" : "")
 const markBusy = ref(false)
 const message = ref("")
-const voice = ref("浏览器语音，尚未播放")
 const speech = useSpeech()
 const passageId = computed(() => `lesson:${props.lessonId}:word:${props.word.id}`)
 const lemma = computed(() => props.word.lemma)
@@ -83,7 +83,6 @@ const summary = computed(() => ({
 
 async function speak(text: string) {
   await speech.play(text, rate.value, false)
-  voice.value = speech.sourceLabel.value || "浏览器语音"
 }
 
 async function onMark(value: "known" | "again") {

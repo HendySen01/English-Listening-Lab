@@ -387,6 +387,7 @@ export async function ownStats(learner: VerifiedLearner) {
   const reviews = await db().wordProgress.count({ where: { userId, reps: { gt: 0 } } });
   const minutes = await db().studySession.aggregate({ where: { userId }, _sum: { minutes: true } });
   const usage = await db().aIUsageRecord.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 20 });
+  const charges = await readOwnCharges(userId);
   const sessions = await db().studySession.findMany({ where: { userId }, select: { createdAt: true, minutes: true } });
   const reviewEvents = await db().reviewEvent.findMany({ where: { userId }, select: { createdAt: true } });
   const lessons = await db().dailyLesson.findMany({ where: { userId }, select: { lessonDate: true } });
@@ -397,7 +398,8 @@ export async function ownStats(learner: VerifiedLearner) {
     minutes: minutes._sum.minutes ?? 0,
     quizTotal: attempts.length,
     quizCorrect: attempts.filter((item) => item.correct).length,
-    usage: usage.map((item) => ({ kind: item.kind, model: item.model, success: item.success, createdAt: item.createdAt })),
+    usage: usage.map((item) => ({ kind: item.kind, model: item.model, success: item.success, createdAt: item.createdAt, source: "AIUsageRecord" as const })),
+    charges,
     studyTimeZone: readStudyTimeZone(),
     days: {
       lessons: countBy(lessons, (item) => item.lessonDate),
@@ -406,6 +408,30 @@ export async function ownStats(learner: VerifiedLearner) {
       usage: countBy(usage, (item) => studyDate(item.createdAt)),
     },
   };
+}
+
+async function readOwnCharges(userId: string) {
+  try {
+    const charges = await db().aiCharge.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      select: { kind: true, model: true, status: true, studyDate: true, createdAt: true },
+    });
+    return charges.map((item) => ({
+      kind: item.kind,
+      model: item.model,
+      status: item.status,
+      studyDate: item.studyDate,
+      createdAt: item.createdAt,
+      mock: item.model === "mock",
+      source: "AiCharge" as const,
+    }));
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+    if (code === "P2021") return null;
+    throw error;
+  }
 }
 
 function countBy<T>(rows: T[], dateOf: (row: T) => string) {
@@ -617,8 +643,17 @@ export async function simplerOwnQuestion(learner: VerifiedLearner, questionId: s
 export async function recallOwnLesson(learner: VerifiedLearner, lessonId: string, text: string) {
   const lesson = await db().dailyLesson.findFirst({ where: { id: lessonId, userId: learner.learnerId } });
   if (!lesson) throw new AppError(404, "NOT_FOUND", "找不到资源");
-  if (text.trim().length < 2) throw new AppError(400, "EMPTY", "请先用简短的话写下你听到的主要内容");
-  return { mode: "local-heuristic", accepted: true };
+  const trimmed = text.trim();
+  if (trimmed.length < 2) throw new AppError(400, "EMPTY", "请先用简短的话写下你听到的主要内容");
+  const gloss = JSON.parse(lesson.listeningGloss) as Record<string, string>;
+  const hits = Object.entries(gloss).filter(([lemma, meaning]) => trimmed.toLowerCase().includes(lemma.toLowerCase()) || trimmed.includes(meaning));
+  return {
+    mode: "local-heuristic",
+    accepted: true,
+    understood: hits.length >= 1 || trimmed.length >= 8,
+    note: "这不是 AI 评分，只是检查你有没有提到今天短文里的词或大意。抓住主要情景即可，不要求逐字复述。",
+    hits: hits.map(([lemma]) => lemma),
+  };
 }
 
 export async function explainOwnedPassage(learner: VerifiedLearner, passageId: string, word = "", sentence = "", clientRequestId?: unknown, inputTokens?: unknown) {
