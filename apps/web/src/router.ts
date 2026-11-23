@@ -7,6 +7,7 @@ import Review from "./views/Review.vue";
 import Stats from "./views/Stats.vue";
 import Settings from "./views/Settings.vue";
 import History from "./views/History.vue";
+import ContextStudy from "./views/ContextStudy.vue";
 import PreviewShell from "./preview/PreviewShell.vue";
 import PreviewHome from "./preview/PreviewHome.vue";
 import PreviewWords from "./preview/PreviewWords.vue";
@@ -20,6 +21,7 @@ export const router = createRouter({
   routes: [
     { path: "/", component: Dashboard },
     { path: "/lesson/:id?", component: Lesson },
+    { path: "/context", component: ContextStudy },
     { path: "/library", component: Library },
     { path: "/listening", component: Listening },
     { path: "/review", component: Review },

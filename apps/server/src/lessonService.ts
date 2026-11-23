@@ -694,22 +694,48 @@ async function recommend(enabled: boolean, dailyNewWords: number, due: number) {
 }
 
 export async function library() {
-  const words = await prisma.vocabulary.findMany({ include: { progress: true }, orderBy: { createdAt: "desc" } });
+  const words = await prisma.vocabulary.findMany({
+    include: {
+      progress: true,
+      lesson: { select: { id: true, lessonDate: true, listeningTitle: true, version: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
   return words.map((word) => ({
     id: word.id,
     lemma: word.lemma,
     pos: word.pos,
     ipa: word.ipa,
+    ipaNote: word.ipaNote,
     meaningZh: zhCN(word.meaningZh),
+    definitionEn: word.definitionEn,
+    collocation: word.collocation,
     example: word.example,
     exampleZh: zhCN(word.exampleZh),
+    morphology: parseMorphology(word.morphology),
     knownAlready: word.knownAlready,
     familiarity: word.progress?.familiarity ?? "new",
     due: word.progress?.due ?? null,
+    lastReview: word.progress?.lastReview ?? null,
     reps: word.progress?.reps ?? 0,
     theme: word.theme,
     difficulty: word.difficulty,
+    lessonId: word.lesson?.id ?? word.lessonId,
+    lessonDate: word.lesson?.lessonDate ?? null,
+    lessonTitle: word.lesson?.listeningTitle ?? "",
+    lessonVersion: word.lesson?.version ?? null,
   }));
+}
+
+function parseMorphology(value: string | null) {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as { prefix?: string | null; root?: string; suffix?: string | null; meaningZh?: string };
+    if (!parsed.root) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
 export async function reviewQueue(now = new Date(), filter = "due", query = "") {
@@ -782,7 +808,17 @@ export async function history() {
     active: lesson.active,
     source: lesson.source,
     sourceLabel: sourceText(lesson.source),
+    listeningTitle: lesson.listeningTitle,
+    progress: safeProgress(lesson.progress),
   }));
+}
+
+function safeProgress(value: string) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
 }
 
 function sourceText(source: string) {

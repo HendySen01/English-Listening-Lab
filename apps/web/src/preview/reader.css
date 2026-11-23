@@ -206,7 +206,7 @@
   .rd-workspace {
     align-items: stretch;
     gap: 0;
-    height: max(480px, calc(100dvh - 250px));
+    height: auto;
     overflow: hidden;
     border: 1px solid var(--rd-line);
     border-radius: 16px;
@@ -221,8 +221,11 @@
     box-shadow: none;
     background: transparent;
   }
-  .rd-workspace > .rd-read { overflow: hidden; border-right: 1px solid var(--rd-line); }
+  .rd-workspace > .rd-read { overflow: visible; border-right: 1px solid var(--rd-line); }
   .rd-workspace > .rd-notes {
+    align-self: start;
+    width: 100%;
+    max-height: calc(100dvh - 250px);
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;

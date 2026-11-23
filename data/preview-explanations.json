@@ -325,6 +325,139 @@
           }
         ]
       }
+    },
+    "context-reader-schema-4::museum::hours": {
+      "passageId": "museum",
+      "word": "hours",
+      "sentence": "After hours of driving, we finally found a quiet parking space behind the museum.",
+      "source": "live",
+      "model": "deepseek-flash",
+      "createdAt": "2026-11-22T17:48:59.546Z",
+      "attempts": 1,
+      "analysis": {
+        "text": "hours",
+        "type": "word",
+        "pronunciation": "/ˈaʊərz/",
+        "partOfSpeech": "名词",
+        "definition": "小时（复数形式），在此句中表示“数小时”，强调一段较长的时间",
+        "usage": "常用于复数形式表示持续数小时的时间段，如 after hours of driving（开了数小时车之后）；也可用于固定搭配如 hours of work、for hours",
+        "etymology": {
+          "origin": "源自希腊语 hōra（季节、时段），经拉丁语 hora 和古法语 houre 进入英语，最初指一天中的某个时段或季节",
+          "originalImage": "古人观察太阳位置将一天划分为若干时段，每个时段称为一个 hōra",
+          "prefix": "无",
+          "root": "hōr（希腊语）→ hora（拉丁语）→ houre（古法语）→ hour（英语）",
+          "suffix": "-s（复数后缀）",
+          "certainty": "较确定"
+        },
+        "semanticRoutes": [
+          {
+            "label": "线路A：时段→小时",
+            "steps": "希腊语 hōra（季节/时段）→ 拉丁语 hora（时刻）→ 古法语 houre → 英语 hour（小时）→ 复数 hours（数小时）",
+            "modernMeaning": "小时（时间单位）",
+            "domain": "日常"
+          },
+          {
+            "label": "线路B：时段→固定工作时间",
+            "steps": "hōra（时段）→ 拉丁语 hora → 英语 hour → 复数 hours 引申为“工作时间、营业时间”",
+            "modernMeaning": "工作时间、营业时间",
+            "domain": "商业"
+          },
+          {
+            "label": "线路C：时段→天文/计时单位",
+            "steps": "hōra（时段）→ 拉丁语 hora → 中世纪计时体系 → 英语 hour 作为精确时间单位 → 复数 hours 用于计时与排程",
+            "modernMeaning": "计时单位（小时）",
+            "domain": "技术"
+          }
+        ],
+        "comparisons": [
+          {
+            "word": "time",
+            "partOfSpeech": "名词",
+            "difference": "time 泛指时间，不可数；hours 强调以小时为单位的具体时长，可数且常带复数，如 hours of driving 比 time of driving 更具体"
+          }
+        ],
+        "examples": [
+          {
+            "text": "After hours of driving, we finally found a quiet parking space behind the museum.",
+            "translation": "开了数小时车之后，我们终于在博物馆后面找到了一个安静的停车位。",
+            "contextNote": "hours 与 of driving 搭配，表示持续数小时的驾驶过程，强调时间之长"
+          },
+          {
+            "text": "She spent hours preparing for the exam.",
+            "translation": "她花了数小时准备考试。",
+            "contextNote": "spend hours doing 是常见搭配，hours 表示较长的一段时间"
+          }
+        ]
+      }
+    },
+    "context-reader-schema-4::cmws0yt1s0002oe9kvmfn6ojp:chunk:0::saturday": {
+      "passageId": "cmws0yt1s0002oe9kvmfn6ojp:chunk:0",
+      "word": "saturday",
+      "sentence": "Saturday morning is busy at my home.",
+      "source": "live",
+      "model": "deepseek-flash",
+      "createdAt": "2026-11-23T01:06:51.720Z",
+      "attempts": 1,
+      "analysis": {
+        "text": "Saturday",
+        "type": "word",
+        "pronunciation": "/ˈsætərdeɪ/",
+        "partOfSpeech": "名词",
+        "definition": "星期六，一周中紧接星期五之后、星期日之前的一天；在本句中作时间状语，指“周六早晨”这一具体时段。",
+        "usage": "专有名词，首字母必须大写；常与介词 on 连用（on Saturday），也可直接置于 morning/afternoon/evening 前作定语，如 Saturday morning。口语中可省略介词，如本句 Saturday morning is busy。",
+        "etymology": {
+          "origin": "古英语 Sæternesdæg，仿拉丁语 Saturni dies（萨图恩之日）的借译，经古法语 satedi 影响演变为中古英语 Saterday，最终定型为 Saturday。",
+          "originalImage": "古罗马人仰望天空，将一周的某一天献给农神萨图恩（Saturn），这一天便被称为“萨图恩之日”。",
+          "prefix": "无",
+          "root": "Saturn（拉丁语 Saturnus，农神萨图恩）",
+          "suffix": "-day（古英语 dæg，日、天）",
+          "certainty": "较确定"
+        },
+        "semanticRoutes": [
+          {
+            "label": "线路A：天文历法",
+            "steps": "拉丁语 Saturni dies（萨图恩之日）→ 古英语 Sæternesdæg → 中古英语 Saterday → 现代英语 Saturday",
+            "modernMeaning": "一周的第七天（按 ISO 为第六天），星期六",
+            "domain": "日常"
+          },
+          {
+            "label": "线路B：宗教礼拜",
+            "steps": "犹太教安息日（Sabbath）结束后的次日 → 基督教传统中与安息日相邻的日期 → 英语 Saturday 承接“安息日次日”的礼拜时间坐标",
+            "modernMeaning": "周末休息与礼拜活动的起始日",
+            "domain": "宗教"
+          },
+          {
+            "label": "线路C：现代休闲经济",
+            "steps": "工业革命后工作日与休息日分离 → 星期六成为半日工作或休息日 → 20 世纪双休制普及 → Saturday 成为购物、娱乐、家庭活动的高峰日",
+            "modernMeaning": "周末休闲消费与家庭生活的标志性时段",
+            "domain": "商业"
+          }
+        ],
+        "comparisons": [
+          {
+            "word": "Sabbath",
+            "partOfSpeech": "名词",
+            "difference": "Sabbath 指宗教意义上的安息日（犹太教为星期五日落至星期六日落，基督教多数派别为星期日），强调神圣休息与礼拜；Saturday 仅指历法上的星期六，是中性时间词，不必然含宗教义务。"
+          },
+          {
+            "word": "weekend",
+            "partOfSpeech": "名词",
+            "difference": "weekend 指星期六和星期日构成的整体休息时段，是集合概念；Saturday 只指其中一天，可与 Friday night 或 Sunday 搭配构成具体时段。"
+          }
+        ],
+        "examples": [
+          {
+            "text": "Saturday morning is busy at my home.",
+            "translation": "星期六早上我家里很忙。",
+            "contextNote": "本句为系表结构，Saturday morning 作主语，busy 作表语，at my home 作地点状语；口语中 Saturday 前省略了介词 on。"
+          },
+          {
+            "text": "We usually go to the market on Saturday.",
+            "translation": "我们通常星期六去市场。",
+            "contextNote": "on Saturday 表示习惯性动作发生的具体星期几，介词 on 不可省略；与一般现在时 usually 搭配，体现规律性。"
+          }
+        ]
+      }
     }
   }
 }

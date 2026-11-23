@@ -2,6 +2,28 @@
   <aside class="rd-notes">
     <p class="rd-kicker">Word notes</p>
     <p v-if="!word" class="rd-note">点击左边的单词。这里会显示这个词在当前句子里的意思，而不是一份词典列表。</p>
+    <template v-else-if="summary && !analysis">
+      <p class="rd-source">课程词条。深度解析会按这一课的句子单独缓存。</p>
+      <div class="rd-meta" style="justify-content: space-between;">
+        <h2 class="rd-word" style="font-size: 40px" translate="no">{{ word }}</h2>
+        <button class="rd-icon" type="button" :aria-label="`朗读 ${word}`" @click="$emit('speak', word)">
+          <Volume2 aria-hidden="true" :size="16" />
+        </button>
+      </div>
+      <p class="rd-meta" translate="no"><span>{{ summary.pronunciation || "没有单独标音标" }}</span><span>·</span><span>{{ summary.partOfSpeech }}</span></p>
+      <p class="rd-copy">{{ summary.definition }}</p>
+      <div class="rd-box">
+        <h3 class="rd-label">当前句子里的用法 <span>IN CONTEXT</span></h3>
+        <p class="rd-copy">{{ summary.usage }}</p>
+      </div>
+      <div class="rd-tools" style="margin-top: 16px">
+        <button class="rd-pill primary" type="button" :disabled="loading" @click="$emit('explain')">{{ explainLabel }}</button>
+        <button class="rd-pill" type="button" :aria-pressed="mark === 'known'" @click="$emit('mark', 'known')">我已认识</button>
+        <button class="rd-pill" type="button" :aria-pressed="mark === 'again'" @click="$emit('mark', 'again')">需要加强</button>
+      </div>
+      <p v-if="error" class="rd-status" role="status">{{ error }}</p>
+      <slot />
+    </template>
     <template v-else-if="!analysis">
       <h2 class="rd-word" style="font-size: 36px" translate="no">{{ word }}</h2>
       <p class="rd-copy">这个词还没有静态样本，也没有匹配当前句子的缓存。</p>
@@ -28,7 +50,8 @@
         <button class="rd-pill" type="button" :aria-pressed="mark === 'again'" @click="$emit('mark', 'again')">需要加强</button>
       </div>
       <p v-if="error" class="rd-status" role="status">{{ error }}</p>
-      <p v-if="mark" class="rd-status" role="status">{{ mark === "known" ? "已在这次预览里记为认识。" : "已标成需要加强。" }}没有新建复习记录，重复点击也不会再加一条。</p>
+      <p v-if="mark && !markNote" class="rd-status" role="status">{{ mark === "known" ? "已在这次预览里记为认识。" : "已标成需要加强。" }}没有新建复习记录，重复点击也不会再加一条。</p>
+      <p v-else-if="markNote" class="rd-status" role="status">{{ markNote }}</p>
       <button :id="`${foldId}-button`" class="rd-pill" style="margin-top: 14px" type="button" :aria-expanded="deep" :aria-controls="foldId" @click="toggleDeep">
         {{ deep ? "收起深入解析" : "深入解析：词源、词根和语义线路" }}
       </button>
@@ -67,6 +90,7 @@
           </div>
         </div>
       </ExpandFold>
+      <slot />
     </template>
   </aside>
 </template>
@@ -87,6 +111,8 @@ const props = defineProps<{
   loading: boolean
   error: string
   columnScroll?: boolean
+  summary?: { pronunciation: string; partOfSpeech: string; definition: string; usage: string }
+  markNote?: string
 }>()
 defineEmits<{ speak: [text: string]; mark: [value: "known" | "again"]; explain: [] }>()
 const sourceLabel = computed(() => {

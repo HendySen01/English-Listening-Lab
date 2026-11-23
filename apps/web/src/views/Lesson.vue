@@ -32,9 +32,9 @@
       <ReviewCard v-else :item="reviews[0]" @done="loadReviews" />
     </article>
 
-    <article class="card" v-else-if="progress.step === 'vocabulary' && word">
-      <h3>新词 {{ progress.wordIndex + 1 }} / {{ lesson.words.length }} · 建议随词数增减</h3>
-      <WordCard :word="word" :rate="rate" @changed="reload" />
+    <article v-else-if="progress.step === 'vocabulary' && word">
+      <p class="muted">新词 {{ progress.wordIndex + 1 }} / {{ lesson.words.length }}</p>
+      <LessonWord :word="word" :lesson-id="lesson.id" @changed="reload" />
       <div class="row" style="margin-top: 12px">
         <button class="choice" @click="moveWord(-1)" :disabled="progress.wordIndex === 0">上一个</button>
         <button class="choice active" @click="moveWord(1)">{{ progress.wordIndex === lesson.words.length - 1 ? "进入下一步" : "下一个" }}</button>
@@ -53,7 +53,7 @@
       <button class="choice active" @click="go('listening')">去听</button>
     </article>
 
-    <ListeningPanel v-else-if="progress.step === 'listening'" :lesson="lesson" :rate="rate" @save="save" />
+    <LessonListening v-else-if="progress.step === 'listening'" :lesson="lesson" @save="save" />
     <ShadowPanel v-else-if="progress.step === 'shadow'" :lesson="lesson" :rate="rate" @save="save" />
 
     <article class="card" v-else-if="progress.step === 'recall'">
@@ -86,8 +86,8 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { api } from "../api";
 import { useAppStore, type Lesson, type Progress } from "../stores/app";
-import WordCard from "../components/WordCard.vue";
-import ListeningPanel from "../components/ListeningPanel.vue";
+import LessonWord from "../components/LessonWord.vue";
+import LessonListening from "../components/LessonListening.vue";
 import ShadowPanel from "../components/ShadowPanel.vue";
 import QuizBlock from "../components/QuizBlock.vue";
 import ReviewCard from "../components/ReviewCard.vue";

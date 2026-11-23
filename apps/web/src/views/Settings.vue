@@ -56,6 +56,7 @@
           <option :value="0.9">0.9 倍</option>
           <option :value="1">1.0 倍</option>
           <option :value="1.1">1.1 倍</option>
+          <option :value="1.2">1.2 倍</option>
         </select>
       </label>
       <p class="muted">默认播放使用浏览器语音，不会自动扣在线语音费用。播放器里可以另行确认后再用在线语音。</p>
@@ -72,6 +73,11 @@
       <p class="muted">界面语言固定为简体中文。英语学习内容保持英文。</p>
       <p v-if="message" :class="error ? 'bad' : 'ok'">{{ message }}</p>
       <button class="choice active" @click="save">保存设置</button>
+    </article>
+    <article class="card stack">
+      <h2>数据管理</h2>
+      <p>课程、词汇、听力和 FSRS 复习记录都留在本机数据库里。</p>
+      <p class="muted">这个页面不能清空数据库，也不能删除历史课程。生成新版本时，旧版本仍可在历史课程里打开。</p>
     </article>
   </section>
 </template>
