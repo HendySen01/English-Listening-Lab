@@ -1,3 +1,4 @@
+import { normalizeSpeechRate } from "./speechRates.js";
 // 这些路由只挂在隔离多用户运行时。未列出的 /api 路径由调用方默认拒绝。
 import express from "express";
 import { isTrustedRequestOrigin } from "./auth.js";
@@ -166,7 +167,7 @@ export function mountLearnerBusinessRoutes(app: express.Express) {
   route("post", "/api/sessions", async (req) => addOwnSession(await learnerOf(req), req.body?.lessonId || null, String(req.body?.module || "lesson"), Number(req.body?.minutes || 0)));
   route("post", "/api/tts", async (req) => {
     const learner = await learnerOf(req);
-    const rate = [0.8, 0.9, 1, 1.1, 1.2].includes(Number(req.body?.rate)) ? Number(req.body?.rate) : 1;
+    const rate = normalizeSpeechRate(req.body?.rate);
     if (req.body?.useOnline === true) {
       return { mode: "file", ...await synthesizeOnline(learner.learnerId, req.body?.text), rate };
     }

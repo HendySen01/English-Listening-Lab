@@ -458,11 +458,11 @@ try {
     check("[HTTP] 学习方向独立于 CEFR，保存后可刷新且隔离",
       reloaded.learningDirection === "cet6" && reloaded.difficulty === "A2" && untouched.learningDirection === "general");
     const persistedRate = await api("/api/settings", alphaCookie, {
-      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ speechRate: 0.9 }),
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ speechRate: 0.7 }),
     });
     const isolatedRate = await (await api("/api/settings", betaCookie)).json() as { speechRate: number };
     check("[HTTP] 独立保存语速且保留学习方向，另一个账号不变",
-      persistedRate.status === 200 && (await persistedRate.json() as { speechRate: number }).speechRate === 0.9 && isolatedRate.speechRate === 1);
+      persistedRate.status === 200 && (await persistedRate.json() as { speechRate: number }).speechRate === 0.7 && isolatedRate.speechRate === 1);
     await api("/api/settings", alphaCookie, {
       method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ learningDirection: "ielts" }),
     });
@@ -528,13 +528,13 @@ try {
     const chargesBeforeSpeech = await user.aiCharge.count();
     const synthesize = () => api("/api/tts", alphaCookie, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "hello", useOnline: true, rate: 1.2 }),
+      body: JSON.stringify({ text: "hello", useOnline: true, rate: 1.3 }),
     });
     const speechResult = await synthesize();
     const speech = await speechResult.json() as { url?: string; rate?: number; sourceLabel?: string };
     const system = await (await api("/api/system", alphaCookie)).json() as { ttsHost: string; ttsVoice: string; ttsUsable: boolean };
     check("[HTTP] 优先使用同一 DeepSeek 密钥，返回私有 WAV 并提供真实服务状态",
-      speechResult.status === 200 && speech.rate === 1.2 && Boolean(speech.url?.startsWith("data:audio/wav;base64,"))
+      speechResult.status === 200 && speech.rate === 1.3 && Boolean(speech.url?.startsWith("data:audio/wav;base64,"))
       && Boolean(speech.sourceLabel?.includes("DeepSeek")) && speechResult.headers.get("cache-control") === "no-store"
       && system.ttsHost === "DeepSeek" && system.ttsVoice === "tide" && system.ttsUsable && deepseekSpeechCalls === 1
       && deepseekSpeechBody.voice_id === "tide" && deepseekSpeechBody.text === "hello" && deepseekSpeechBody.format === "wav");

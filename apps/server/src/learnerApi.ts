@@ -1,3 +1,4 @@
+import { normalizeSpeechRate } from "./speechRates.js";
 // 业务读写只接受已经验证的 Learner。资源 ID 先按当前用户查找。
 import type { VerifiedLearner } from "./learnerIdentity.js";
 import { assertPaidAiMock } from "./learnerAiGuard.js";
@@ -618,7 +619,6 @@ export async function updateOwnSettings(learner: VerifiedLearner, input: Record<
   const current = await ownSettings(learner);
   const themes = Object.keys(THEME_ZH);
   const modes = ["light", "dark", "system"];
-  const rates = [0.8, 0.9, 1, 1.1, 1.2];
   return db().userSettings.update({
     where: { userId: learner.learnerId },
     data: {
@@ -632,7 +632,7 @@ export async function updateOwnSettings(learner: VerifiedLearner, input: Record<
       wordPartsEnabled: input.wordPartsEnabled === undefined ? undefined : typeof input.wordPartsEnabled === "boolean" ? input.wordPartsEnabled : current.wordPartsEnabled,
       recommendationsEnabled: input.recommendationsEnabled === undefined ? undefined : typeof input.recommendationsEnabled === "boolean" ? input.recommendationsEnabled : current.recommendationsEnabled,
       colorMode: input.colorMode === undefined ? undefined : modes.includes(String(input.colorMode)) ? String(input.colorMode) : current.colorMode,
-      speechRate: input.speechRate === undefined ? undefined : rates.includes(Number(input.speechRate)) ? Number(input.speechRate) : current.speechRate,
+      speechRate: input.speechRate === undefined ? undefined : normalizeSpeechRate(input.speechRate, current.speechRate),
       updatedAt: new Date(),
     },
   });

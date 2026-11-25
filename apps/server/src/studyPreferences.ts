@@ -1,4 +1,5 @@
 import { AppError } from "./errors.js";
+import { normalizeSpeechRate } from "./speechRates.js";
 
 export const cefrLevels = ["A1", "A2", "B1", "B2", "C1", "C2"] as const;
 
@@ -15,7 +16,7 @@ export const directionGuidance = {
 } as const;
 
 type Direction = keyof typeof directionGuidance;
-type Preferences = { difficulty: string; listeningLevel: string; learningDirection?: string | null; customLearningGoal?: string | null };
+type Preferences = { difficulty: string; listeningLevel: string; learningDirection?: string | null; customLearningGoal?: string | null; speechRate?: number | null };
 
 function isDirection(value: unknown): value is Direction {
   return typeof value === "string" && Object.hasOwn(directionGuidance, value);
@@ -34,6 +35,7 @@ function goal(value: unknown) {
 export function studyPreferences<T extends Preferences>(settings: T) {
   return {
     ...settings,
+    speechRate: normalizeSpeechRate(settings.speechRate),
     difficulty: level(settings.difficulty) || "A2",
     listeningLevel: level(settings.listeningLevel) || "match",
     learningDirection: isDirection(settings.learningDirection) ? settings.learningDirection

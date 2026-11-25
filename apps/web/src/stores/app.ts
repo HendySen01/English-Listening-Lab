@@ -1,7 +1,9 @@
 import { defineStore } from "pinia";
 import { api } from "../api";
 
-export const speechRates = [0.8, 0.9, 1, 1.1, 1.2];
+import { normalizeSpeechRate, speechRates as allowedRates } from "../lib/speechRates";
+
+export const speechRates: readonly number[] = allowedRates;
 
 export type Lesson = {
   id: string;
@@ -92,7 +94,7 @@ export const useAppStore = defineStore("app", {
         const settings = await api<{ speechRate: number }>("/api/settings", {
           method: "PUT", body: JSON.stringify({ speechRate: rate }),
         });
-        if (version === this.speechRateVersion) this.speechRate = settings.speechRate;
+        if (version === this.speechRateVersion) this.speechRate = normalizeSpeechRate(settings.speechRate);
       } catch (error) {
         if (version !== this.speechRateVersion) return;
         this.speechRate = previous;
@@ -116,7 +118,7 @@ export const useAppStore = defineStore("app", {
         const [dashboard, system] = await Promise.all([api<any>("/api/dashboard"), api<any>("/api/system")]);
         this.dashboard = dashboard;
         if (this.speechRateVersion === rateVersion && !this.speechRateBusy) {
-          this.speechRate = dashboard.settings.speechRate ?? 1;
+          this.speechRate = normalizeSpeechRate(dashboard.settings.speechRate);
         }
         this.system = system;
         applyTheme(dashboard.settings.colorMode);

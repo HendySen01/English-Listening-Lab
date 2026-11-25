@@ -85,7 +85,7 @@ import { glosses, previewLesson, previewSentences } from "./sample";
 
 const lesson = previewLesson;
 const stages = ["1 盲听", "2 原文", "3 再听", "4 回忆"];
-const rates = [0.8, 1, 1.2];
+const rates = [0.7, 1, 1.3];
 const stage = ref(0);
 const playing = ref(false);
 const voice = ref("尚未播放");

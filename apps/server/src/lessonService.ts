@@ -1,3 +1,4 @@
+import { normalizeSpeechRate } from "./speechRates.js";
 import { studyWeek } from "./studyTime.js";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { BANK } from "./bank.js";
@@ -38,8 +39,7 @@ export async function updateSettings(input: Record<string, unknown>) {
   const current = await getSettings();
   const dailyNewWords = clampInt(input.dailyNewWords, 3, 20, current.dailyNewWords);
   const dailyMinutes = clampInt(input.dailyMinutes, 20, 180, current.dailyMinutes);
-  const rates = [0.8, 0.9, 1, 1.1];
-  const speechRate = rates.includes(Number(input.speechRate)) ? Number(input.speechRate) : current.speechRate;
+  const speechRate = normalizeSpeechRate(input.speechRate, current.speechRate);
   const themes = Object.keys(THEME_ZH);
   const theme = themes.includes(String(input.theme)) ? String(input.theme) : current.theme;
   return prisma.userSettings.update({
