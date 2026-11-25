@@ -1,12 +1,14 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { APIError, betterAuth } from "better-auth";
+import { createAuthMiddleware } from "better-auth/api";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { provisionOwnLearner } from "./learnerProvision.js";
 import { productionAuthBase, productionTrustedOrigins } from "./productionBoot.js";
 import { previewAuthBase, previewTrustedOrigins } from "./previewBoot.js";
 import { authDb, postgresRuntimeRequested } from "./runtimeClients.js";
 import { redactSecrets } from "./serverLog.js";
+import { authMailConfigured, sendAuthMail } from "./authMail.js";
 
 const clientIpHeader = "x-lab-client-ip";
 const inviteStore = new AsyncLocalStorage<string>();
@@ -22,7 +24,6 @@ export function authSecret() {
   return secret;
 }
 
-// 邮件发送还没有配置。注册不把邮箱标成已验证，也不假装发过验证信。
 export function inviteCode(env: NodeJS.ProcessEnv = process.env) {
   const code = (env.AUTH_INVITE_CODE || "").trim();
   if (code.length < 8 || code.length > 64 || /\s/.test(code)) return "";
@@ -121,6 +122,7 @@ function trustedOrigins() {
 
 function redactAuthLog(value: string) {
   return redactSecrets(value)
+    .replace(/(\/reset-password\/)[^\s?]+/gi, "$1[redacted]")
     .replace(/better-auth-secret[^\s]*/gi, "[redacted]")
     .replace(/\b(password|token|secret|authorization)\s*[:=]\s*\S+/gi, "$1=[redacted]")
     .replace(/x-lab-invite\s*[:=]\s*\S+/gi, "x-lab-invite=[redacted]");
@@ -134,8 +136,10 @@ export function getAuth() {
   if (!secret) return null;
   const inviteHash = createHash("sha256").update(inviteCode()).digest("hex").slice(0, 12);
   const key = `${secret}\n${process.env.BETTER_AUTH_URL || ""}\n${process.env.AUTH_DATABASE_URL || ""}\n${process.env.AUTH_SELFTEST || ""}\n${process.env.POSTGRES_RUNTIME || ""}\n${publicSignupEnabled() ? "signup" : "no-signup"}\n${process.env.VERCEL_ENV || ""}\n${inviteHash}`;
-  if (auth && authKey === key) return auth;
-  authKey = key;
+  const mail = authMailConfigured();
+  const runtimeKey = `${key}\n${mail}`;
+  if (auth && authKey === runtimeKey) return auth;
+  authKey = runtimeKey;
   auth = betterAuth({
     appName: "英语学习实验室",
     baseURL: process.env.VERCEL === "1"
@@ -152,6 +156,21 @@ export function getAuth() {
       minPasswordLength: 8,
       maxPasswordLength: 128,
       autoSignIn: true,
+      revokeSessionsOnPasswordReset: true,
+      resetPasswordTokenExpiresIn: 30 * 60,
+      sendResetPassword: mail ? async ({ user, url }) => sendAuthMail(user.email, url, "reset") : undefined,
+    },
+    emailVerification: mail ? {
+      sendOnSignUp: true,
+      expiresIn: 60 * 60,
+      sendVerificationEmail: async ({ user, url }) => sendAuthMail(user.email, url, "verify"),
+    } : undefined,
+    hooks: {
+      before: createAuthMiddleware(async (context) => {
+        if (context.path !== "/reset-password") return;
+        const issue = passwordIssue(String(context.body?.newPassword || ""));
+        if (issue) throw new APIError("BAD_REQUEST", { message: issue, code: "WEAK_PASSWORD" });
+      }),
     },
     databaseHooks: {
       user: {
@@ -192,6 +211,9 @@ export function getAuth() {
       customRules: {
         "/sign-in/email": { window: 15 * 60, max: 5 },
         "/sign-up/email": { window: 15 * 60, max: 8 },
+        "/request-password-reset": { window: 15 * 60, max: 5 },
+        "/send-verification-email": { window: 15 * 60, max: 5 },
+        "/reset-password": { window: 15 * 60, max: 8 },
       },
     },
     advanced: {

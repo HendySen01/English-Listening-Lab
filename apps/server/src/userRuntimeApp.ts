@@ -1,5 +1,6 @@
 // 隔离的多用户测试入口。现有 createApp 不挂载这些路由，也不能把它接到公网业务接口。
 import { toNodeHandler } from "better-auth/node";
+import { authMailConfigured } from "./authMail.js";
 import cors from "cors";
 import express from "express";
 import { clientIpHeader, getAuth, inviteConfigured, learnerProvisioningEnabled, publicSignupEnabled, runWithInvite } from "./auth.js";
@@ -91,7 +92,7 @@ export function createUserRuntimeApp(options: { platform?: "local" | "vercel" } 
     res.json({
       enabled: publicSignupEnabled(),
       inviteRequired: inviteConfigured(),
-      emailDelivery: "unconfigured",
+      emailDelivery: authMailConfigured() ? "configured" : "unconfigured",
       learnerProvisioning: learnerProvisioningEnabled(),
     });
   });

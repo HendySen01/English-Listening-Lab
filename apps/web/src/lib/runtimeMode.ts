@@ -1,3 +1,5 @@
+import { withRequestTimeout } from "./requestTimeout";
+
 declare const __LAB_PROTECTED_RUNTIME__: boolean | undefined;
 
 export function selectAccessMode(protectedFlag: boolean, healthOk: boolean) {
@@ -20,11 +22,11 @@ export async function multiUserRuntime() {
   if (protectedRuntimeRequested()) return true;
   if (detected != null) return detected;
   try {
-    const response = await fetch("/api/user-runtime/health", { credentials: "include" });
+    const response = await withRequestTimeout(6000, (signal) => fetch("/api/user-runtime/health", { credentials: "include", signal }));
     const outcome = response.ok && await response.text() === "{\"ok\":true}" ? "ok" : "unavailable";
     detected = accessAfterProbe(false, outcome) === "protected";
   } catch {
-    detected = accessAfterProbe(false, "network") === "protected";
+    return accessAfterProbe(false, "network") === "protected";
   }
   return detected;
 }

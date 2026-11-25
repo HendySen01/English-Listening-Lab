@@ -8,7 +8,7 @@
       </div>
       <div class="row">
         <button class="choice" @click="details = true">课程详情</button>
-        <button class="choice" @click="makeAiVersion">重新生成课程</button>
+        <button class="choice" :disabled="generating" @click="makeAiVersion">{{ generating ? "正在生成…" : "重新生成课程" }}</button>
       </div>
       <p v-if="error" class="bad">{{ error }}</p>
     </div>
@@ -186,15 +186,24 @@ async function loadVersions() {
   versions.value = await api("/api/lessons/today/versions");
 }
 
+const generating = ref(false);
+
 async function makeAiVersion() {
+  if (generating.value) return;
   if (!confirm("重新生成会再调用一次 AI，可能产生费用。现在这节课会保留，可以在课程详情里切换回来。继续吗？")) return;
   error.value = "";
+  generating.value = true;
   try {
-    lesson.value = await api<Lesson>("/api/lessons/ai-version", { method: "POST", body: JSON.stringify({ confirmCost: true }) });
+    lesson.value = await api<Lesson>("/api/lessons/ai-version", {
+      method: "POST",
+      body: JSON.stringify({ confirmCost: true, clientRequestId: crypto.randomUUID() }),
+    });
     await loadVersions();
     await store.load();
   } catch (err) {
     error.value = err instanceof Error ? err.message : "AI 生成失败，原课程仍可学习";
+  } finally {
+    generating.value = false;
   }
 }
 

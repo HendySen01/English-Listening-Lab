@@ -89,6 +89,17 @@ a.choice:focus-visible, a.text-button:focus-visible, a.rd-pill:focus-visible {
   background: var(--bg);
   color: var(--muted);
 }
+.boot-panel {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 28px;
+  text-align: center;
+}
+.boot-panel strong { color: var(--ink); font-size: 1.25rem; }
+.boot-spinner { color: var(--accent-text); animation: boot-spin 1.1s linear infinite; }
+@keyframes boot-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .boot-spinner { animation: none; } }
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: var(--sidebar) 1fr; }
 .sidebar {
   position: sticky;
@@ -378,6 +389,7 @@ details summary { cursor: pointer; min-height: 44px; display: flex; align-items:
   }
   .rd-workspace.lib-workspace > .rd-read,
   .rd-workspace.lib-workspace > .rd-notes {
+    max-height: calc(100vh - 210px);
     max-height: calc(100dvh - 210px);
     height: auto;
     overflow-y: auto;

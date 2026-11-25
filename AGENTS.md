@@ -20,9 +20,9 @@
 - 正式站：**Vercel Production**，网址 `https://english-listening-lab.vercel.app`。入口仍是 `apps/server/src/vercelPreview.ts`；`VERCEL_ENV=production` 时走 Production 启动保护。最近已知上线提交为 `9f636f4`，以当前 Git 为准。
 - Neon PostgreSQL：项目 **English Listening Lab**，数据库 `neondb`。Production 使用独立端点与隔离 schema `lab_phase_h`（业务）和 `lab_phase_h_auth`（认证）。development 仍是演练分支，schema 同名但端点不同。**禁止把 Preview / development 连接用于 Production，禁止连接 `public`。**
 - Neon 脚本：`apps/server/scripts/neon-dev/`、`apps/server/scripts/neon-prod/`。本地 SQLite `.env` 不得写入 Neon URL。凭据只放在被 Git 忽略的 `apps/server/.env.neon.development`、`apps/server/.env.neon.production`。邀请码文件 `apps/server/.invite.production` 同样忽略。**不得把邀请码、连接串、密钥写入文档、Git 或报告。**
-- 注册：Better Auth 邮箱密码。Production 须 `AUTH_SIGNUP_ENABLED=1` 且服务端校验邀请码；无邀请码不得创建用户。邮箱验证邮件未配置，注册不得把邮箱标成已验证。登录限流与注册限流分开。每个认证用户最多一个独立 Learner，不得绑定 `unbound:original-lab`。
-- AI：默认每人每天 200 次、全站每天 1500 次，按 `STUDY_TIMEZONE=Asia/Shanghai` 学习日重置。只计实际发给 DeepSeek 的模型请求。音标、浏览器朗读、缓存命中、离线课和普通 API 不扣次数。金额预算可选。完整课程生成目前仍是离线词，**不得写成已用 DeepSeek 生成整课。**
-- 浏览器语音是默认朗读路径。**在线 TTS 不能因为浏览器语音能播放就标成已验证。**
+- 注册：Better Auth 邮箱密码。Production 须 `AUTH_SIGNUP_ENABLED=1` 且服务端校验邀请码；无邀请码不得创建用户。邮箱需经有效验证链接才能标为已验证。登录限流与注册限流分开。每个认证用户最多一个独立 Learner，不得绑定 `unbound:original-lab`。
+- AI：默认每人每天 200 次、全站每天 1500 次，按 `STUDY_TIMEZONE=Asia/Shanghai` 学习日重置。只计实际发给 DeepSeek 的模型请求。音标、浏览器朗读、缓存命中、离线课和普通 API 不扣次数。金额预算可选。整课生成的本地实现、模拟测试和正式站真实调用结果分别记录在进度文档。
+- 浏览器语音是默认朗读路径。多用户在线朗读经独立开关启用，优先复用 DeepSeek 密钥，在线朗读次数与文本模型额度分开。**在线 TTS 不能因为浏览器语音能播放就标成已验证。**
 - AI 深度解释结构是 `context-reader-schema-4`。正式页是否走云端 `ExplanationCache`，必须以代码和实测为准。
 
 ## 3. 执行行为：先核对、再行动、再验收
@@ -76,6 +76,7 @@
 - **复习**：区分提前练习（不改变正式 FSRS 排程）与正式评分（改变排程）；不要在用户已明确选择正式操作后无意义地重复确认。对真正付费、删除或不可逆操作保留必要保护。
 - **统计**：仅显示真实学习数据，缺数据要明确空状态；不要画装饰性趋势或虚构成长。后台、空闲、刷新及跨日计时需有真实规则，不把页面开着的全部时间当有效学习。
 - 桌面/移动端、浅色/深色都要验收；展开内容较短时容器自然收缩，内容长时右侧整栏独立滚动，避免多重滚动条和大片空白。
+- 前端最低兼容目标为 iOS 15.6 Safari。Vite 显式配置 JavaScript 与 CSS 目标，另行核对 Web API、同源会话 Cookie、语音用户手势及邮箱链接。只有在对应版本的真实 WebKit 环境完成操作后，才把该版本标为实测通过。
 - 已确认的外观原则上**局部修复，不随意推倒重做**。如果用户要求先汇总问题，则先交问题表和可选方案，不直接修改。
 
 ## 7. 验收与汇报格式
@@ -87,6 +88,8 @@
 - 报告只列必要命令和文件，避免大段重复本文件。没有证据不写“全部测试通过”。
 
 ## 8. 新任务提示词约定
+
+「交接棒接着干」时，使用已注册的 handoff Skill，读取本文件、计划书和最新进度，按当前 Git、代码、测试和用户最新反馈接续未完成工作。
 
 本文件已覆盖长期背景、路径、设计、安全、数据库和验收原则。以后单次任务只需写：
 

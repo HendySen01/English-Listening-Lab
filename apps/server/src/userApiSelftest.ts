@@ -28,9 +28,11 @@ process.env.BETTER_AUTH_TRUSTED_ORIGINS = "http://127.0.0.1:8797,http://localhos
 process.env.AUTH_SELFTEST = "1";
 process.env.LLM_API_KEY = "";
 process.env.TTS_API_KEY = "";
+delete process.env.AI_REAL_CALLS;
+delete process.env.ONLINE_TTS_ENABLED;
 
 const { createPrivateTestAccount } = await import("./auth.ts");
-const { disconnectAuthPrisma } = await import("./authDatabase.ts");
+const { disconnectAuthPrisma, getAuthPrisma } = await import("./authDatabase.ts");
 const { paidAiCalls, resetPaidAiCalls, setPaidAiMock } = await import("./learnerAiGuard.ts");
 const { ownLibrary, ownStats, rateOwnWord } = await import("./learnerApi.ts");
 const { createUserRuntimeApp } = await import("./userRuntimeApp.ts");
@@ -333,6 +335,118 @@ try {
   const anonymousTts = await api("/api/tts", "", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "hello", useOnline: true }) });
   const onlineTts = await api("/api/tts", alphaCookie, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "hello", useOnline: true }) });
   check("[HTTP] 在线语音不能匿名调用，隔离运行时拒绝联网", anonymousTts.status === 401 && onlineTts.status === 403);
+  const fetchHttp = globalThis.fetch;
+  let lessonCalls = 0;
+  let speechCalls = 0;
+  let deepseekSpeechCalls = 0;
+  let deepseekSpeechBody: Record<string, unknown> = {};
+  let modelSettings: Record<string, unknown> = {};
+  const words = ["clinic", "rest", "water"].map((lemma) => ({
+    lemma, pos: "noun", meaningZh: "词义", definitionEn: "A short definition.",
+    collocation: `some ${lemma}`, example: `We talked about ${lemma} today.`, exampleZh: "我们今天聊过这个话题。",
+  }));
+  const questions = ["context", "sentence", "listening"].map((kind) => ({
+    kind, prompt: "选择答案。", options: ["A", "B", "C"], answerIndex: 0,
+    explanationEn: "First option.", explanationZh: "选第一项。", simplerZh: "第一项。",
+    evidence: "I went to the clinic.", whyWrong: ["", "第二项不符。", "第三项不符。"],
+  }));
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url === "https://ai-unit.invalid/chat/completions") {
+      lessonCalls += 1;
+      const request = JSON.parse(String(init?.body));
+      modelSettings = JSON.parse(request.messages[1].content);
+      const content = JSON.stringify({
+        words, questions, listeningTitle: "A visit",
+        listeningChunks: ["I went to the clinic.", "The doctor asked me to rest.", "I drank some water at home."],
+      });
+      return Response.json({ choices: [{ finish_reason: lessonCalls === 1 ? "stop" : "length", message: { content } }] });
+    }
+    if (url === "https://api.openai.com/v1/audio/speech") {
+      speechCalls += 1;
+      return new Response(new Uint8Array([1, 2, 3]), { headers: { "Content-Type": "audio/mpeg" } });
+    }
+    if (url === "https://api.deepseek.com/v1/tools/tts") {
+      deepseekSpeechCalls += 1;
+      deepseekSpeechBody = JSON.parse(String(init?.body));
+      const wav = Buffer.alloc(46);
+      wav.write("RIFF", 0);
+      wav.writeUInt32LE(38, 4);
+      wav.write("WAVEfmt ", 8);
+      wav.writeUInt32LE(16, 16);
+      wav.writeUInt16LE(1, 20);
+      wav.writeUInt16LE(1, 22);
+      wav.writeUInt32LE(24000, 24);
+      wav.writeUInt32LE(48000, 28);
+      wav.writeUInt16LE(2, 32);
+      wav.writeUInt16LE(16, 34);
+      wav.write("data", 36);
+      wav.writeUInt32LE(2, 40);
+      return new Response(new Uint8Array(wav), { headers: { "Content-Type": "audio/wav" } });
+    }
+    if (!url.startsWith("http://127.0.0.1:")) throw new Error("Unexpected outbound fetch in selftest");
+    return fetchHttp(input, init);
+  };
+  try {
+    process.env.AI_REAL_CALLS = "1";
+    process.env.DEEPSEEK_API_KEY = "fake-model-key";
+    process.env.DEEPSEEK_BASE_URL = "https://ai-unit.invalid";
+    process.env.ONLINE_TTS_ENABLED = "1";
+    process.env.ONLINE_TTS_API_KEY = "fake-speech-key";
+    delete process.env.ONLINE_TTS_PROVIDER;
+    process.env.TTS_VOICE = "tide";
+    await api("/api/settings", alphaCookie, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dailyNewWords: 3, theme: "Custom", customTheme: "Health visits", difficulty: "B1", listeningLevel: "A1", wordPartsEnabled: false }),
+    });
+    const generate = (requestId: string) => api("/api/lessons/ai-version", alphaCookie, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmCost: true, clientRequestId: requestId }),
+    });
+    const generated = await generate("course-real-path-1");
+    const lesson = await generated.json() as { id: string; words?: unknown[]; questions?: unknown[] };
+    const replay = await generate("course-real-path-1");
+    const replayed = await replay.json() as { id: string };
+    const rejected = await generate("course-real-path-2");
+    const saved = await user.dailyLesson.findUnique({ where: { id: lesson.id || "missing" } });
+    const charged = await user.aiCharge.count({ where: { requestId: { startsWith: "course-real-path-" }, status: "succeeded" } });
+    check("[HTTP] 整课真实路径在模拟模型下校验、隔离保存并支持重放",
+      generated.status === 200 && lesson.words?.length === 3 && lesson.questions?.length === 3
+      && replayed.id === lesson.id && lessonCalls === 2 && saved?.userId === "learner_scope_a", String(generated.status));
+    check("[HTTP] 截断的课程计一次请求并保留已激活课程", rejected.status === 502 && saved?.active === true && charged === 2);
+    check("[HTTP] 整课模型使用保存的词数、主题、难度、听力和词根设置",
+      modelSettings.count === 3 && modelSettings.theme === "Health visits"
+      && modelSettings.difficulty === "B1" && modelSettings.listeningLevel === "A1"
+      && modelSettings.listeningLength === "short" && modelSettings.morphology === "Always null"
+      && saved?.theme === "Health visits" && saved?.difficulty === "B1");
+    const chargesBeforeSpeech = await user.aiCharge.count();
+    const synthesize = () => api("/api/tts", alphaCookie, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "hello", useOnline: true, rate: 1.2 }),
+    });
+    const speechResult = await synthesize();
+    const speech = await speechResult.json() as { url?: string; rate?: number; sourceLabel?: string };
+    const system = await (await api("/api/system", alphaCookie)).json() as { ttsHost: string; ttsVoice: string; ttsUsable: boolean };
+    check("[HTTP] 优先使用同一 DeepSeek 密钥，返回私有 WAV 并提供真实服务状态",
+      speechResult.status === 200 && speech.rate === 1.2 && Boolean(speech.url?.startsWith("data:audio/wav;base64,"))
+      && Boolean(speech.sourceLabel?.includes("DeepSeek")) && speechResult.headers.get("cache-control") === "no-store"
+      && system.ttsHost === "DeepSeek" && system.ttsVoice === "tide" && system.ttsUsable && deepseekSpeechCalls === 1
+      && deepseekSpeechBody.voice_id === "tide" && deepseekSpeechBody.text === "hello" && deepseekSpeechBody.format === "wav");
+    process.env.ONLINE_TTS_PROVIDER = "openai";
+    const openaiResult = await synthesize();
+    const openai = await openaiResult.json() as { url?: string; sourceLabel?: string };
+    check("[HTTP] 显式选择 OpenAI 时保留原 MP3 路径", openaiResult.status === 200
+      && openai.url === "data:audio/mpeg;base64,AQID" && Boolean(openai.sourceLabel?.includes("OpenAI")) && speechCalls === 1);
+    const speechCounter = await getAuthPrisma().rateLimit.findUnique({ where: { key: "lab-tts:user:learner_scope_a" } });
+    const sharedAudio = await api("/api/audio/test.mp3", betaCookie);
+    check("[HTTP] 在线语音独立扣次且无共享音频读取入口",
+      speechCounter?.count === 2 && await user.aiCharge.count() === chargesBeforeSpeech && sharedAudio.status === 403);
+  } finally {
+    globalThis.fetch = fetchHttp;
+    delete process.env.AI_REAL_CALLS;
+    delete process.env.ONLINE_TTS_ENABLED;
+    delete process.env.ONLINE_TTS_PROVIDER;
+  }
   const unbound = await api("/api/lessons", guestCookie);
   const invalid = await api("/api/stats", brokenCookie);
   const brokenRow = await user.learner.findUniqueOrThrow({ where: { id: "learner_scope_d" } });

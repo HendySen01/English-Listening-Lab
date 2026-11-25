@@ -9,6 +9,9 @@ import { THEME_ZH } from "./content.js";
 import { addStudyDays, readStudyTimeZone, studyDate, studyDayBounds, studyNow } from "./studyTime.js";
 import { previewDays, type RatingName } from "./srs.js";
 import { learnerDb } from "./runtimeClients.js";
+import { createHash, randomUUID } from "node:crypto";
+import { deepseekLessonRequest } from "./deepseekLesson.js";
+import { lockLearnerScope, learnerTransactionOptions } from "./learnerLock.js";
 
 function db() {
   return learnerDb();
@@ -230,10 +233,11 @@ export async function ownLessonVersions(learner: VerifiedLearner, lessonDate: st
 export async function activateOwnLesson(learner: VerifiedLearner, id: string) {
   const lesson = await db().dailyLesson.findFirst({ where: { id, userId: learner.learnerId } });
   if (!lesson) throw new AppError(404, "NOT_FOUND", "找不到资源");
-  await db().$transaction([
-    db().dailyLesson.updateMany({ where: { userId: learner.learnerId, lessonDate: lesson.lessonDate }, data: { active: false } }),
-    db().dailyLesson.updateMany({ where: { id, userId: learner.learnerId }, data: { active: true } }),
-  ]);
+  await db().$transaction(async (tx) => {
+    await lockLearnerScope(tx, `lesson:${learner.learnerId}:${lesson.lessonDate}`);
+    await tx.dailyLesson.updateMany({ where: { userId: learner.learnerId, lessonDate: lesson.lessonDate }, data: { active: false } });
+    await tx.dailyLesson.updateMany({ where: { id, userId: learner.learnerId }, data: { active: true } });
+  }, learnerTransactionOptions());
   return ownLesson(learner, id);
 }
 
@@ -339,6 +343,59 @@ export async function ensureOwnToday(learner: VerifiedLearner, now = studyNow())
 
 export async function createOwnAiVersion(learner: VerifiedLearner, clientRequestId?: unknown, inputTokens?: unknown, now = studyNow()) {
   const declared = typeof inputTokens === "number" ? inputTokens : undefined;
+  if (process.env.AI_REAL_CALLS === "1") {
+    const userId = learner.learnerId;
+    const [settings, recent, priorLessons, dueCount] = await Promise.all([
+      ownSettings(learner),
+      db().vocabulary.findMany({ where: { userId }, select: { lemma: true }, orderBy: { createdAt: "desc" }, take: 32 }),
+      db().dailyLesson.count({ where: { userId, active: true } }),
+      db().wordProgress.count({ where: { userId, reps: { gt: 0 }, due: { lte: now } } }),
+    ]);
+    const request = deepseekLessonRequest(settings, [...new Set(recent.map(({ lemma }) => lemma.slice(0, 60)))], priorLessons, dueCount);
+    const requestId = clientRequestId ?? crypto.randomUUID();
+    const id = `lesson_${createHash("sha256").update(JSON.stringify([userId, String(requestId).trim()])).digest("hex")}`;
+    const result = await withAiCharge({
+      learner, requestId, kind: "lesson", now, model: request.model,
+      inputTokens: request.inputTokens, outputTokens: request.outputTokens,
+    }, async () => ({ draft: await request.generate(), lessonDate: studyDate(now), model: request.model }));
+    const { draft, lessonDate, model } = result.value;
+    if (!draft) throw new AppError(409, "AI_REQUEST_CONFLICT", "请重新发起课程生成。");
+    await db().$transaction(async (tx) => {
+      await lockLearnerScope(tx, `lesson:${userId}:${lessonDate}`);
+      if (await tx.dailyLesson.findFirst({ where: { id, userId }, select: { id: true } })) return;
+      const where = { userId, lessonDate };
+      const latest = await tx.dailyLesson.findFirst({ where, orderBy: { version: "desc" }, select: { version: true } });
+      await tx.dailyLesson.updateMany({ where, data: { active: false } });
+      await tx.dailyLesson.create({
+        data: {
+          id, userId, lessonDate, version: (latest?.version ?? 0) + 1, active: true, createdAt: now,
+          theme: draft.theme, difficulty: draft.difficulty, source: "ai", model,
+          newWordCount: draft.words.length, estimatedMinutes: draft.estimatedMinutes,
+          poolNote: draft.poolNote, progress: "{}",
+          listeningTitle: draft.listeningTitle, listeningText: draft.listeningText,
+          listeningChunks: JSON.stringify(draft.listeningChunks), listeningGloss: JSON.stringify(draft.listeningGloss),
+        },
+      });
+      const words = draft.words.map((word, index) => ({
+        id: randomUUID(), lessonId: id, userId,
+        lemma: word.lemma, pos: word.pos, ipaNote: "", meaningZh: word.meaningZh,
+        definitionEn: word.definitionEn, collocation: word.collocation, example: word.example, exampleZh: word.exampleZh,
+        morphology: word.morphology ? JSON.stringify(word.morphology) : null, difficulty: word.difficulty,
+        theme: word.theme, knownAlready: false, exampleFlagged: false, createdAt: new Date(now.getTime() + index),
+      }));
+      await tx.vocabulary.createMany({ data: words });
+      await tx.wordProgress.createMany({ data: words.map(({ id: vocabularyId }) => ({
+        id: randomUUID(), vocabularyId, userId, due: now, stability: 0.5, difficulty: 5, firstLearnedAt: now,
+        elapsedDays: 0, scheduledDays: 0, learningSteps: 0, reps: 0, lapses: 0, state: 0,
+        correctCount: 0, incorrectCount: 0, familiarity: "new", recallAbility: "again",
+      })) });
+      await tx.quizQuestion.createMany({ data: draft.questions.map((question, sortOrder) => ({
+        ...question, id: randomUUID(), lessonId: id, userId, sortOrder,
+        options: JSON.stringify(question.options), whyWrong: JSON.stringify(question.whyWrong),
+      })) });
+    }, learnerTransactionOptions());
+    return ownLesson(learner, id);
+  }
   const result = await withAiCharge({ learner, requestId: clientRequestId, kind: "lesson", now, inputTokens: declared }, async () => {
     assertPaidAiMock();
     return createOfflineLesson(learner, studyDate(now), "ai");

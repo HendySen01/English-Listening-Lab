@@ -23,14 +23,17 @@
         <p class="login-error" role="alert">{{ message }}</p>
         <button class="login-submit" type="submit" :disabled="busy" :aria-busy="busy">{{ busy ? "正在登录" : "登录" }}</button>
         <p class="login-switch">没有账号？<router-link to="/register">注册</router-link></p>
+        <p class="login-switch"><router-link to="/forgot-password">忘记密码</router-link></p>
+        <p v-if="mailUnavailable" class="login-switch">邮箱验证和密码找回暂不可用。</p>
       </form>
     </section>
   </main>
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
+import { api } from "../api";
 import { authClient } from "../lib/authClient";
 
 const router = useRouter();
@@ -39,6 +42,12 @@ const password = ref("");
 const message = ref("");
 const busy = ref(false);
 const passwordVisible = ref(false);
+const mailUnavailable = ref(false);
+
+onMounted(async () => {
+  const status = await api<{ emailDelivery: string }>("/api/signup-status").catch(() => null);
+  mailUnavailable.value = status?.emailDelivery === "unconfigured";
+});
 
 async function prepareLearner() {
   const status = await fetch("/api/signup-status", { credentials: "include" });

@@ -18,8 +18,10 @@ import PreviewListeningCard from "./preview/PreviewListeningCard.vue";
 import AuthLab from "./views/AuthLab.vue";
 import Login from "./views/Login.vue";
 import Register from "./views/Register.vue";
-import { authClient } from "./lib/authClient";
+import AuthEmail from "./views/AuthEmail.vue";
+import { authClient, sessionUser } from "./lib/authClient";
 import { multiUserRuntime, protectedRuntimeRequested } from "./lib/runtimeMode";
+import { withRequestTimeout } from "./lib/requestTimeout";
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -35,6 +37,9 @@ export const router = createRouter({
     { path: "/auth-lab", component: AuthLab },
     { path: "/login", component: Login },
     { path: "/register", component: Register },
+    { path: "/forgot-password", component: AuthEmail, meta: { anonymous: true } },
+    { path: "/reset-password", component: AuthEmail, meta: { anonymous: true } },
+    { path: "/email-verification", component: AuthEmail, meta: { anonymous: true } },
     { path: "/history", component: History },
     {
       path: "/preview",
@@ -53,15 +58,18 @@ export const router = createRouter({
 });
 
 router.beforeEach(async (to) => {
+  if (to.meta.anonymous) return true;
   if (!(await multiUserRuntime())) return true;
   if (!protectedRuntimeRequested() && (to.path.startsWith("/preview") || to.path === "/auth-lab")) return true;
   try {
-    const session = await authClient.getSession();
+    const session = await withRequestTimeout(8000, (signal) => authClient.getSession({ fetchOptions: { signal } }));
+    sessionUser.value = session.data?.user ?? null;
     const signedIn = Boolean(session.data?.user);
     if (to.path === "/login" || to.path === "/register") return signedIn ? "/" : true;
     if (!signedIn) return "/login";
     return true;
   } catch {
+    sessionUser.value = null;
     if (to.path === "/login" || to.path === "/register") return true;
     return "/login";
   }

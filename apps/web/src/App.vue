@@ -1,5 +1,11 @@
 <template>
-  <div v-if="!settled" class="boot-screen" role="status" aria-live="polite">正在确认登录</div>
+  <div v-if="!settled" class="boot-screen" role="status" aria-live="polite">
+    <div class="boot-panel">
+      <LoaderCircle class="boot-spinner" aria-hidden="true" :size="26" />
+      <strong>英语学习实验室</strong>
+      <span>正在确认登录状态…</span>
+    </div>
+  </div>
   <router-view v-else-if="standalone" />
   <div v-else class="app-shell">
     <a class="skip" href="#main">跳到内容</a>
@@ -31,7 +37,7 @@
           <button class="choice" type="button" :aria-pressed="mode === 'light'" @click="setTheme('light')">浅色</button>
           <button class="choice" type="button" :aria-pressed="mode === 'dark'" @click="setTheme('dark')">深色</button>
           <button class="choice" type="button" :aria-pressed="mode === 'system'" @click="setTheme('system')">跟随系统</button>
-          <button v-if="sessionEmail" class="choice" type="button" @click="signOut">退出</button>
+          <button v-if="sessionUser" class="choice" type="button" @click="signOut">退出</button>
         </div>
       </header>
       <main id="main" class="page">
@@ -44,18 +50,16 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { BarChart3, BookOpen, CalendarDays, FileText, Headphones, History, Library, RotateCcw, Settings } from "lucide-vue-next";
+import { BarChart3, BookOpen, CalendarDays, FileText, Headphones, History, Library, LoaderCircle, RotateCcw, Settings } from "lucide-vue-next";
 import { api } from "./api";
-import { authClient } from "./lib/authClient";
-import { multiUserRuntime } from "./lib/runtimeMode";
+import { authClient, sessionUser } from "./lib/authClient";
 import { applyTheme, useAppStore, watchSystemTheme } from "./stores/app";
 
 const route = useRoute();
 const router = useRouter();
 const store = useAppStore();
-const sessionEmail = ref("");
 const settled = ref(false);
-const standalone = computed(() => route.path.startsWith("/preview") || route.path === "/auth-lab" || route.path === "/login" || route.path === "/register");
+const standalone = computed(() => route.meta.anonymous || route.path.startsWith("/preview") || route.path === "/auth-lab" || route.path === "/login" || route.path === "/register");
 const titles: Record<string, string> = {
   "/": "今天",
   "/lesson": "我的课程",
@@ -80,19 +84,11 @@ async function setTheme(next: string) {
   });
 }
 
-async function refreshSession() {
-  try {
-    const session = await authClient.getSession();
-    sessionEmail.value = session.data?.user.email || "";
-  } catch {
-    sessionEmail.value = "";
-    if (await multiUserRuntime() && route.path !== "/login" && route.path !== "/register") await router.replace("/login");
-  }
-}
-
 async function signOut() {
-  await authClient.signOut();
-  sessionEmail.value = "";
+  const result = await authClient.signOut();
+  if (result.error) return;
+  sessionUser.value = null;
+  store.dashboard = null;
   await router.push("/login");
 }
 
@@ -100,14 +96,12 @@ onMounted(async () => {
   applyTheme(localStorage.getItem("ell-color-mode") || "system");
   watchSystemTheme();
   await router.isReady();
-  await refreshSession();
   settled.value = true;
   if (!standalone.value) void store.load();
 });
 
-watch(standalone, async (value) => {
+watch(standalone, (value) => {
   if (!settled.value) return;
-  await refreshSession();
   if (!value) void store.load();
 });
 </script>

@@ -8,6 +8,9 @@ import { studyDate, studyDayBounds, studyNow } from "./studyTime.js";
 
 const requestIdPattern = /^[A-Za-z0-9_-]{8,80}$/;
 const holding = ["pending", "succeeded", "unknown"] as const;
+export function aiOutputTokenLimit() {
+  return requiredInt("AI_MAX_OUTPUT_TOKENS", 6000);
+}
 export const aiKinds = ["lesson", "explain", "example", "simpler", "probe"] as const;
 export type AiKind = (typeof aiKinds)[number];
 
@@ -54,7 +57,7 @@ function budgetConfig() {
   const hard = optionalInt("AI_HARD_BUDGET_MICROS");
   if (!price || user == null || site == null || hard == null) return null;
   const inputTokens = requiredInt("AI_MAX_INPUT_TOKENS", 8000);
-  const outputTokens = requiredInt("AI_MAX_OUTPUT_TOKENS", 2000);
+  const outputTokens = aiOutputTokenLimit();
   const worst = Math.ceil((inputTokens * price.inputRate) / 1_000_000) + Math.ceil((outputTokens * price.outputRate) / 1_000_000);
   return { ...price, user, site, hard, worst };
 }
@@ -150,7 +153,7 @@ export async function withAiCharge<T>(
 ): Promise<{ replayed: boolean; value: T }> {
   if (process.env.AI_QUOTA_PAUSED === "1") throw new AppError(503, "AI_PAUSED", "AI 请求已暂停，这次没有调用模型。");
   const maxInput = requiredInt("AI_MAX_INPUT_TOKENS", 8000);
-  const maxOutput = requiredInt("AI_MAX_OUTPUT_TOKENS", 2000);
+  const maxOutput = aiOutputTokenLimit();
   if (input.inputTokens != null && (!Number.isInteger(input.inputTokens) || input.inputTokens < 0 || input.inputTokens > maxInput)) {
     throw new AppError(400, "AI_TOKEN_LIMIT", "这次请求超过输入 Token 上限，没有调用模型。");
   }
@@ -215,7 +218,9 @@ export async function withAiCharge<T>(
   });
 
   if (!existing.fresh) {
-    if (existing.row.status === "succeeded" && existing.row.resultJson) {
+    if (existing.row.status === "succeeded") {
+      if (existing.row.kind !== input.kind) throw new AppError(409, "AI_REQUEST_CONFLICT", "请求号已用于其他 AI 操作。");
+      if (!existing.row.resultJson) throw new AppError(502, "AI_RESPONSE_REJECTED", "这次模型请求未返回可用结果。");
       return { replayed: true, value: JSON.parse(existing.row.resultJson) as T };
     }
     if (existing.row.status === "failed") throw new AppError(409, "AI_REQUEST_CLOSED", "这次请求已确认没有产生费用，没有再次预留。");
@@ -240,7 +245,7 @@ export async function withAiCharge<T>(
       where: { id: existing.row.id },
       data: unsent
         ? { status: "failed", reservedCostMicros: 0, settledAt: new Date() }
-        : { status: "unknown", settledAt: new Date() },
+        : { status: error instanceof AppError && error.code === "AI_RESPONSE_REJECTED" ? "succeeded" : "unknown", settledAt: new Date() },
     });
     throw error;
   }

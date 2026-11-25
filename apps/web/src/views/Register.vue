@@ -51,7 +51,7 @@ const inviteRequired = ref(false);
 const password = ref("");
 const confirmPassword = ref("");
 const message = ref("");
-const help = ref("每个账号有自己的学习记录。邮箱验证邮件还没有配置。");
+const help = ref("每个账号有自己的学习记录。");
 const busy = ref(false);
 const passwordVisible = ref(false);
 const confirmVisible = ref(false);
@@ -86,10 +86,12 @@ onMounted(async () => {
   try {
     const status = await fetch("/api/signup-status", { credentials: "include" });
     if (!status.ok) return;
-    const body = await status.json() as { enabled?: boolean; inviteRequired?: boolean };
+    const body = await status.json() as { enabled?: boolean; inviteRequired?: boolean; emailDelivery?: string };
     signupOpen.value = body.enabled !== false;
     inviteRequired.value = body.inviteRequired === true;
     if (!signupOpen.value) help.value = "当前环境没有开放注册。已有账号仍可以登录。";
+    else if (body.emailDelivery === "configured") help.value = "注册后请查看收件箱，完成邮箱验证。";
+    else if (body.emailDelivery === "unconfigured") help.value = "可以正常注册。邮箱验证和密码找回暂不可用。";
   } catch {
     message.value = "网络异常，还没有确认注册是否开放。";
   }
@@ -122,6 +124,7 @@ async function register() {
       email: mail,
       password: password.value,
       name: nameFromEmail.value,
+      callbackURL: "/email-verification?verified=1",
       fetchOptions: inviteRequired.value ? { headers: { "x-lab-invite": inviteCode.value.trim() } } : undefined,
     });
     if (result.error) {

@@ -31,6 +31,8 @@ import { assertPaidAiMock, sendAuthorizedModelProbe } from "./learnerAiGuard.js"
 import { withAiCharge } from "./learnerQuota.js";
 import { resolveRequestLearner } from "./learnerIdentity.js";
 import { studyDate, studyNow } from "./studyTime.js";
+import { deepseekLessonStatus } from "./deepseekLesson.js";
+import { onlineSpeechStatus, synthesizeOnline } from "./onlineSpeech.js";
 import type { RatingName } from "./srs.js";
 
 function routeId(value: string | string[]) {
@@ -76,6 +78,7 @@ export function mountLearnerBusinessRoutes(app: express.Express) {
   const route = (method: "get" | "post" | "put" | "patch", path: string, run: (req: express.Request) => Promise<unknown>, status = 200) => {
     app[method](path, async (req, res, next) => {
       try {
+        if (path === "/api/tts") res.set("Cache-Control", "no-store");
         const value = await run(req);
         res.status(status).json(value);
       } catch (error) {
@@ -86,16 +89,17 @@ export function mountLearnerBusinessRoutes(app: express.Express) {
 
   route("get", "/api/system", async (req) => {
     const quota = await ownQuota(await learnerOf(req));
+    const ai = deepseekLessonStatus();
     return {
       ok: true,
-      ai: "mock-only",
-      llmState: "仅 Mock，未连接真实模型",
-      llmProvider: "mock",
-      llmModel: "mock",
+      ai: ai.available ? "deepseek" : "offline",
+      llmState: ai.available ? "已配置，可手动生成" : ai.configured ? "已暂停" : "使用离线词库",
+      llmProvider: ai.configured ? "DeepSeek" : null,
+      llmModel: ai.configured ? ai.model : null,
+      llmUsable: ai.available,
       aiUsedToday: quota.userUsed,
       aiDailyLimit: quota.userLimit,
-      ttsState: "未启用",
-      ttsNote: "隔离运行时只使用浏览器语音。",
+      ...onlineSpeechStatus(),
     };
   });
   route("get", "/api/ai/quota", async (req) => ownQuota(await learnerOf(req)));
@@ -126,7 +130,13 @@ export function mountLearnerBusinessRoutes(app: express.Express) {
   route("get", "/api/settings", async (req) => ownSettings(await learnerOf(req)));
   route("put", "/api/settings", async (req) => updateOwnSettings(await learnerOf(req), req.body ?? {}));
   route("post", "/api/lessons/today", async (req) => ensureOwnToday(await learnerOf(req)));
-  route("post", "/api/lessons/ai-version", async (req) => createOwnAiVersion(await learnerOf(req), req.body?.clientRequestId, req.body?.inputTokens));
+  route("post", "/api/lessons/ai-version", async (req) => {
+    const learner = await learnerOf(req);
+    if (process.env.AI_REAL_CALLS === "1" && req.body?.confirmCost !== true) {
+      throw new AppError(400, "AI_CONFIRMATION_REQUIRED", "请确认使用一次 AI 额度生成课程。");
+    }
+    return createOwnAiVersion(learner, req.body?.clientRequestId, req.body?.inputTokens);
+  });
   route("post", "/api/lessons/:id/activate", async (req) => activateOwnLesson(await learnerOf(req), routeId(req.params.id)));
   route("get", "/api/lessons/today/versions", async (req) => ownLessonVersions(await learnerOf(req), studyDate(studyNow())));
   route("get", "/api/lessons", async (req) => ownLessons(await learnerOf(req)));
@@ -159,9 +169,11 @@ export function mountLearnerBusinessRoutes(app: express.Express) {
   route("post", "/api/quiz/:id/simpler", async (req) => simplerOwnQuestion(await learnerOf(req), routeId(req.params.id), req.body?.clientRequestId, req.body?.inputTokens));
   route("post", "/api/sessions", async (req) => addOwnSession(await learnerOf(req), req.body?.lessonId || null, String(req.body?.module || "lesson"), Number(req.body?.minutes || 0)));
   route("post", "/api/tts", async (req) => {
-    await learnerOf(req);
-    if (req.body?.useOnline === true) throw new AppError(403, "ONLINE_TTS_DISABLED", "隔离运行时拒绝在线语音。");
-    const rate = [0.8, 0.9, 1, 1.1].includes(Number(req.body?.rate)) ? Number(req.body?.rate) : 1;
+    const learner = await learnerOf(req);
+    const rate = [0.8, 0.9, 1, 1.1, 1.2].includes(Number(req.body?.rate)) ? Number(req.body?.rate) : 1;
+    if (req.body?.useOnline === true) {
+      return { mode: "file", ...await synthesizeOnline(learner.learnerId, req.body?.text), rate };
+    }
     return { mode: "browser", rate, sourceLabel: "当前语音：浏览器语音" };
   });
   app.get("/api/audio/:name", async (req, res, next) => {

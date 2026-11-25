@@ -23,6 +23,8 @@ process.env.LLM_API_KEY = "";
 process.env.TTS_API_KEY = "";
 delete process.env.VERCEL_ENV;
 delete process.env.AI_REAL_CALLS;
+delete process.env.AUTH_MAIL_API_KEY;
+delete process.env.AUTH_MAIL_FROM;
 
 function removeDatabase(file: string) {
   for (const suffix of ["", "-wal", "-shm"]) {
@@ -227,6 +229,61 @@ try {
     if (response.status === 429) blocked = true;
   }
   check("[注册] 注册请求会被限流", blocked);
+
+  const fetchHttp = globalThis.fetch;
+  const sent: string[] = [];
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url === "https://api.resend.com/emails") {
+      const payload = JSON.parse(String(init?.body)) as { text: string };
+      const link = payload.text.split("\n").find((line) => line.startsWith("http://127.0.0.1:8808/"));
+      if (link) sent.push(link);
+      return Response.json({ id: "test-email" });
+    }
+    if (!url.startsWith("http://127.0.0.1:")) throw new Error("Unexpected outbound fetch in selftest");
+    return fetchHttp(input, init);
+  };
+  try {
+    process.env.AUTH_MAIL_API_KEY = "fake-mail-key";
+    process.env.AUTH_MAIL_FROM = "test@lab.test";
+    await getAuthPrisma().rateLimit.deleteMany();
+    const address = "mail-flow@lab.test";
+    const created = await signup(address);
+    const existingSession = cookieFrom(created);
+    const sessionCookie = created.headers.getSetCookie().find((value) => /session_token=/.test(value)) || "";
+    check("[会话] 注册会话 Cookie 使用 HttpOnly 与 SameSite=Lax", /;\s*HttpOnly/i.test(sessionCookie) && /;\s*SameSite=Lax/i.test(sessionCookie));
+    const verify = new URL(sent[0] || base);
+    const verified = await api(verify.pathname + verify.search, "", { redirect: "manual" });
+    const verifiedUser = await getAuthPrisma().user.findUnique({ where: { email: address } });
+    check("[邮件] 注册发送验证链接，访问有效链接后标记验证", created.status === 200 && verified.status === 302 && verifiedUser?.emailVerified === true);
+
+    const requestReset = (email: string) => api("/api/auth/request-password-reset", "", {
+      method: "POST", body: JSON.stringify({ email, redirectTo: "/reset-password" }),
+    });
+    const existing = await requestReset(address);
+    const unknown = await requestReset("unknown-mail@lab.test");
+    const resetLink = new URL(sent[1] || base);
+    const callback = await api(resetLink.pathname + resetLink.search, "", { redirect: "manual" });
+    const token = new URL(callback.headers.get("location") || base, base).searchParams.get("token");
+    const reset = (newPassword: string) => api("/api/auth/reset-password", "", {
+      method: "POST", body: JSON.stringify({ token, newPassword }),
+    });
+    const weak = await reset("weakpassword");
+    const changed = await reset("new-password-1844");
+    const repeated = await reset("new-password-1844");
+    const oldSession = await api("/api/auth/get-session", existingSession);
+    const nextLogin = await api("/api/auth/sign-in/email", "", {
+      method: "POST", body: JSON.stringify({ email: address, password: "new-password-1844" }),
+    });
+    check("[邮件] 密码找回统一响应，使用一次性链接并撤销旧会话",
+      existing.status === 200 && unknown.status === 200 && await existing.text() === await unknown.text()
+      && sent.length === 2 && weak.status === 400 && changed.status === 200 && repeated.status >= 400
+      && await oldSession.json() === null && nextLogin.status === 200);
+  } finally {
+    globalThis.fetch = fetchHttp;
+    delete process.env.AUTH_MAIL_API_KEY;
+    delete process.env.AUTH_MAIL_FROM;
+  }
 
   const speech = fs.readFileSync(path.join(repoRoot, "apps", "web", "src", "composables", "useSpeech.ts"), "utf8");
   const registerView = fs.readFileSync(path.join(repoRoot, "apps", "web", "src", "views", "Register.vue"), "utf8");

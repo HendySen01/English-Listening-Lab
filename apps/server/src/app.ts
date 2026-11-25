@@ -1,4 +1,5 @@
 import { fromNodeHeaders, toNodeHandler } from "better-auth/node";
+import { authMailConfigured } from "./authMail.js";
 import cors from "cors";
 import express from "express";
 import { clientIpHeader, getAuth, inviteConfigured, learnerProvisioningEnabled, publicSignupEnabled, runWithInvite } from "./auth.js";
@@ -73,7 +74,7 @@ export function createApp() {
     res.json({
       enabled: publicSignupEnabled(),
       inviteRequired: inviteConfigured(),
-      emailDelivery: "unconfigured",
+      emailDelivery: authMailConfigured() ? "configured" : "unconfigured",
       learnerProvisioning: learnerProvisioningEnabled(),
     });
   });

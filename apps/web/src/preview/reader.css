@@ -297,6 +297,7 @@ html.dark .rd .rd-pill.rate-easy:hover:not(:disabled) { background: #245650; }
   .rd-workspace > .rd-notes {
     align-self: start;
     width: 100%;
+    max-height: calc(100vh - 250px);
     max-height: calc(100dvh - 250px);
     overflow-x: hidden;
     overflow-y: auto;
