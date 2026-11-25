@@ -43,7 +43,8 @@ async function verify(engine, name, viewport, mode) {
   const page = await context.newPage();
   const errors = [], unexpected = [];
   page.on("pageerror", error => errors.push(error.message));
-  let reviews = [promise, schedule], attempts = 0, explainPosts = 0;
+  let reviews = [promise, schedule], attempts = 0, explainPosts = 0, generations = 0, dialogs = 0;
+  page.on("dialog", async dialog => { dialogs++; await dialog.dismiss(); });
   const requestIds = [];
   const lesson = {
     id: "fixture-lesson", lessonDate: "2026-11-25", version: 1, active: true,
@@ -63,6 +64,16 @@ async function verify(engine, name, viewport, mode) {
     if (p === "/api/user-runtime/health") return json({ ok: false }, 404);
     if (p === "/api/dashboard") return json({ dateLabel: "2026-11-25", settings, lesson });
     if (p === "/api/system") return json({ ok: true, ttsUsable: false });
+    if (p === "/api/lessons/ai-version" && method === "POST") {
+      generations++;
+      const body = route.request().postDataJSON();
+      assert.equal(body.confirmCost, true);
+      assert.ok(body.clientRequestId);
+      await new Promise(resolve => setTimeout(resolve, 700));
+      if (generations === 1) return json({ error: "测试：生成暂时失败" }, 502);
+      lesson.listening.title = "A new fixture course";
+      return json(lesson);
+    }
     if (p === "/api/lessons/today/versions") return json([lesson]);
     if (p === "/api/lessons/fixture-lesson" && method === "GET") return json(lesson);
     if (p === "/api/lessons/fixture-lesson/progress" && method === "PATCH") {
@@ -116,6 +127,19 @@ async function verify(engine, name, viewport, mode) {
     await page.screenshot({ path: output + "/" + name + "-parts.png", fullPage: true });
     const dimensions = await page.evaluate(() => ({ width: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
     assert.ok(dimensions.scroll <= dimensions.width + 2, "Unexpected horizontal overflow: " + JSON.stringify(dimensions));
+    const generate = page.getByRole("button", { name: "重新生成课程", exact: true });
+    await generate.click();
+    const busy = page.getByRole("button", { name: "正在生成…", exact: true });
+    await busy.waitFor();
+    assert.equal(await busy.isDisabled(), true, "Generation must block duplicate clicks");
+    await busy.evaluate(button => button.click());
+    await page.getByText("测试：生成暂时失败", { exact: true }).waitFor();
+    await page.getByRole("heading", { name: "A morning at work", exact: true }).waitFor();
+    assert.equal(generations, 1);
+    await generate.click();
+    await page.getByRole("heading", { name: "A new fixture course", exact: true }).waitFor();
+    assert.equal(generations, 2);
+    assert.equal(dialogs, 0, "Generation must not open a native confirmation dialog");
     assert.deepEqual(errors, [], "Browser errors");
     assert.deepEqual(unexpected, [], "Unhandled mock requests");
     console.log(name + ": review and cached word formation passed");

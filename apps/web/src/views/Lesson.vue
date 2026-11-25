@@ -8,9 +8,10 @@
       </div>
       <div class="row">
         <button class="choice" @click="details = true">课程详情</button>
-        <button class="choice" :disabled="generating" @click="makeAiVersion">{{ generating ? "正在生成…" : "重新生成课程" }}</button>
+        <button class="choice" :disabled="generating" :aria-busy="generating" @click="makeAiVersion">{{ generating ? "正在生成…" : "重新生成课程" }}</button>
+        <span class="generation-note" role="status">{{ generating ? "正在准备新课程，原课程仍保留。" : "每次生成使用一次 AI 请求，旧课程保留。" }}</span>
       </div>
-      <p v-if="error" class="bad">{{ error }}</p>
+      <p v-if="error" class="bad" role="alert">{{ error }}</p>
     </div>
     <el-dialog v-model="details" title="课程详情" width="min(520px, 92vw)">
       <p>{{ lessonMetadata(lesson) }}</p>
@@ -182,7 +183,6 @@ const generating = ref(false);
 
 async function makeAiVersion() {
   if (generating.value) return;
-  if (!confirm("重新生成会再调用一次 AI，可能产生费用。现在这节课会保留，可以在课程详情里切换回来。继续吗？")) return;
   error.value = "";
   generating.value = true;
   try {
@@ -218,3 +218,8 @@ onMounted(async () => {
 });
 watch(() => route.params.id, reload);
 </script>
+
+<style scoped>
+.generation-note { flex-basis: 100%; text-align: right; color: var(--muted); font-size: 12px; line-height: 1.5; }
+@media (max-width: 600px) { .generation-note { text-align: left; } }
+</style>
