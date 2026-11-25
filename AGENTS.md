@@ -17,7 +17,7 @@
 - 后端：Node.js + Express 5 + TypeScript，`apps/server`；本地 API 通常为 `127.0.0.1:8787`，前端通过相对路径 `/api` 和 Vite 代理访问。
 - ORM：Prisma **6.19.3**。未经任务授权不得擅自升级或照搬 Prisma 7 配置。
 - 本地运行数据库：SQLite，`data/lab.db`；常规 Schema 为 `apps/server/prisma/schema.prisma`，`provider = "sqlite"`。**原始 SQLite 学习记录只作测试保留，不得迁入正式账号。**
-- 正式站：**Vercel Production**，网址 `https://english-listening-lab.vercel.app`。入口仍是 `apps/server/src/vercelPreview.ts`；`VERCEL_ENV=production` 时走 Production 启动保护。最近已知上线提交为 `9f636f4`，以当前 Git 为准。
+- 正式站：**Vercel Production**，网址 `https://english-listening-lab.vercel.app`。入口为 `apps/server/src/vercelPreview.ts`，`VERCEL_ENV=production` 时走 Production 启动保护。发布版本以 Vercel 正式域名指向和部署元数据为准，最近结果记录在进度文档。
 - Neon PostgreSQL：项目 **English Listening Lab**，数据库 `neondb`。Production 使用独立端点与隔离 schema `lab_phase_h`（业务）和 `lab_phase_h_auth`（认证）。development 仍是演练分支，schema 同名但端点不同。**禁止把 Preview / development 连接用于 Production，禁止连接 `public`。**
 - Neon 脚本：`apps/server/scripts/neon-dev/`、`apps/server/scripts/neon-prod/`。本地 SQLite `.env` 不得写入 Neon URL。凭据只放在被 Git 忽略的 `apps/server/.env.neon.development`、`apps/server/.env.neon.production`。邀请码文件 `apps/server/.invite.production` 同样忽略。**不得把邀请码、连接串、密钥写入文档、Git 或报告。**
 - 注册：Better Auth 邮箱密码。Production 须 `AUTH_SIGNUP_ENABLED=1` 且服务端校验邀请码；无邀请码不得创建用户。邮箱需经有效验证链接才能标为已验证。登录限流与注册限流分开。每个认证用户最多一个独立 Learner，不得绑定 `unbound:original-lab`。
