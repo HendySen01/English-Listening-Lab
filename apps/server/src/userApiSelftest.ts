@@ -337,6 +337,7 @@ try {
   check("[HTTP] 在线语音不能匿名调用，隔离运行时拒绝联网", anonymousTts.status === 401 && onlineTts.status === 403);
   const fetchHttp = globalThis.fetch;
   let lessonCalls = 0;
+  let thinkingMode: unknown;
   let speechCalls = 0;
   let deepseekSpeechCalls = 0;
   let deepseekSpeechBody: Record<string, unknown> = {};
@@ -355,6 +356,7 @@ try {
     if (url === "https://ai-unit.invalid/chat/completions") {
       lessonCalls += 1;
       const request = JSON.parse(String(init?.body));
+      thinkingMode = request.thinking?.type;
       modelSettings = JSON.parse(request.messages[1].content);
       const content = JSON.stringify({
         words, questions, listeningTitle: "A visit",
@@ -391,6 +393,7 @@ try {
     process.env.AI_REAL_CALLS = "1";
     process.env.DEEPSEEK_API_KEY = "fake-model-key";
     process.env.DEEPSEEK_BASE_URL = "https://ai-unit.invalid";
+    process.env.DEEPSEEK_MODEL = "deepseek-flash";
     process.env.ONLINE_TTS_ENABLED = "1";
     process.env.ONLINE_TTS_API_KEY = "fake-speech-key";
     delete process.env.ONLINE_TTS_PROVIDER;
@@ -414,6 +417,7 @@ try {
       generated.status === 200 && lesson.words?.length === 3 && lesson.questions?.length === 3
       && replayed.id === lesson.id && lessonCalls === 2 && saved?.userId === "learner_scope_a", String(generated.status));
     check("[HTTP] 截断的课程计一次请求并保留已激活课程", rejected.status === 502 && saved?.active === true && charged === 2);
+    check("[HTTP] DeepSeek Flash 生成整课时显式关闭思考模式", thinkingMode === "disabled");
     check("[HTTP] 整课模型使用保存的词数、主题、难度、听力和词根设置",
       modelSettings.count === 3 && modelSettings.theme === "Health visits"
       && modelSettings.difficulty === "B1" && modelSettings.listeningLevel === "A1"

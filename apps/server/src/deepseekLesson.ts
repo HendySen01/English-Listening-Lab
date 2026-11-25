@@ -44,6 +44,7 @@ export function deepseekLessonRequest(settings: {
   });
   const inputTokens = Buffer.byteLength(system + user) + 128;
   const outputTokens = Math.min(aiOutputTokenLimit(), 950 + 220 * options.expectedCount);
+  const supportsThinkingToggle = status.model === "deepseek-flash" || status.model.startsWith("deepseek-v4");
   return {
     model: status.model, inputTokens, outputTokens,
     async generate() {
@@ -58,15 +59,22 @@ export function deepseekLessonRequest(settings: {
         signal: AbortSignal.timeout(90_000),
         body: JSON.stringify({
           model: status.model, max_tokens: outputTokens, response_format: { type: "json_object" },
-          ...(status.model.startsWith("deepseek-v4") ? { thinking: { type: "disabled" } } : {}),
+          ...(supportsThinkingToggle ? { thinking: { type: "disabled" } } : {}),
           messages: [{ role: "system", content: system }, { role: "user", content: user }],
         }),
       }).catch(() => { throw new AppError(502, "AI_CONNECTION", "DeepSeek 暂未响应，请先查看当前课程。"); });
-      if (!response.ok) throw new AppError(502, "AI_RESPONSE_REJECTED", "DeepSeek 没有返回可用课程。");
+      if (!response.ok) {
+        console.warn("DeepSeek lesson rejected by upstream", { status: response.status });
+        throw new AppError(502, "AI_RESPONSE_REJECTED", "DeepSeek 没有返回可用课程。");
+      }
       try {
         const data = await response.json();
         const choice = data.choices?.[0];
-        if (choice?.finish_reason !== "stop") throw new Error("incomplete");
+        if (choice?.finish_reason !== "stop") {
+          const truncated = choice?.finish_reason === "length";
+          console.warn("DeepSeek lesson incomplete", { truncated });
+          throw new Error("incomplete");
+        }
         const raw = JSON.parse(choice.message.content);
         const draft = draftFromAi(raw, options);
         if (draft.listeningText.length > 1500 || draft.questions.some(({ options }) => new Set(options.map((value) => value.trim().toLowerCase())).size !== options.length)) {
