@@ -4,7 +4,7 @@ import { BANK } from "./bank.js";
 import { prisma } from "./prisma.js";
 import { AppError } from "./errors.js";
 import { chatJson, parseModelJson } from "./ai.js";
-import { emptyCard, previewDays, schedule, type RatingName, type StoredCard } from "./srs.js";
+import { emptyCard, previewDays, previewMinutes, schedule, type RatingName, type StoredCard } from "./srs.js";
 import { zhCN } from "./zh.js";
 import { lessonLearningGoal, studyPreferences, updateStudyPreferences } from "./studyPreferences.js";
 import {
@@ -592,6 +592,7 @@ async function replayReview(db: ReviewDb, requestId: string, vocabularyId: strin
     due: existing.dueAfter,
     familiarity: progress.familiarity,
     intervals: previewDays(storedFrom(progress)),
+    intervalMinutes: previewMinutes(storedFrom(progress)),
     changedSchedule: existing.changedSchedule,
     replayed: true,
     note: mode === "formal" ? "这次提交已经记录过，没有再次计分。" : "这次提前练习已经记录过，排程没有改变。",
@@ -717,6 +718,7 @@ export async function practiceWord(vocabularyId: string, rating: RatingName, cli
         due: progress.due,
         familiarity: progress.familiarity,
         intervals: previewDays(storedFrom(progress)),
+    intervalMinutes: previewMinutes(storedFrom(progress)),
         changedSchedule: false,
         replayed: false,
         note: "这次是提前练习。原定复习时间、正式复习次数和记忆等级都没有改变。",

@@ -29,8 +29,8 @@
 
     <article class="card" v-if="progress.step === 'review'">
       <h3>旧词复习 · 建议 10 分钟</h3>
-      <p v-if="!reviews.length" class="muted">今天没有到期的旧词。可以进入新词。</p>
-      <ReviewCard v-else :key="reviews[0].id" :item="reviews[0]" @done="loadReviews" />
+      <div v-if="!reviews.length" class="course-review-empty"><p class="muted">今天没有到期的旧词。可以进入新词。</p><button class="choice active" @click="go('vocabulary')">开始新词</button></div>
+      <ReviewCard v-else :key="reviews[0].id" :item="reviews[0]" :remaining="reviews.length" @done="loadReviews" />
     </article>
 
     <article v-else-if="progress.step === 'vocabulary' && word">
@@ -42,17 +42,7 @@
       </div>
     </article>
 
-    <article class="card" v-else-if="progress.step === 'parts'">
-      <h3>词根词缀 · 最多 2 个</h3>
-      <p v-if="!parts.length" class="muted">今天的词没有足够明确的构词，不强行拆分。</p>
-      <div v-for="item in parts" :key="item.id" class="stack" style="margin-bottom: 12px">
-        <h2 class="word" style="font-size: 32px">{{ item.lemma }}</h2>
-        <p>{{ item.morphology?.prefix || "无前缀" }} + {{ item.morphology?.root }} + {{ item.morphology?.suffix || "无后缀" }}</p>
-        <p>{{ item.morphology?.meaningZh }}</p>
-        <p>{{ item.morphology?.example }}</p>
-      </div>
-      <button class="choice active" @click="go('listening')">去听</button>
-    </article>
+    <LessonParts v-else-if="progress.step === 'parts'" :words="parts" :lesson-id="lesson.id" @next="go('listening')" />
 
     <LessonListening v-else-if="progress.step === 'listening'" :lesson="lesson" @save="save" />
     <ShadowPanel v-else-if="progress.step === 'shadow'" :lesson="lesson" @save="save" />
@@ -95,6 +85,7 @@ import LessonListening from "../components/LessonListening.vue";
 import ShadowPanel from "../components/ShadowPanel.vue";
 import QuizBlock from "../components/QuizBlock.vue";
 import ReviewCard from "../components/ReviewCard.vue";
+import LessonParts from "../components/LessonParts.vue";
 
 const route = useRoute();
 const store = useAppStore();
@@ -116,7 +107,7 @@ const steps = [
 ];
 const progress = computed(() => lesson.value?.progress as Progress);
 const word = computed(() => lesson.value?.words[progress.value.wordIndex] || null);
-const parts = computed(() => lesson.value?.words.filter((item) => item.morphology) || []);
+const parts = computed(() => lesson.value?.words.filter((item) => item.morphology).slice(0, 2) || []);
 const recallWord = computed(() => lesson.value?.words.find((item) => item.reps === 0 && !item.knownAlready) || null);
 
 async function reload() {

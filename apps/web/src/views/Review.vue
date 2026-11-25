@@ -29,15 +29,12 @@
           <div v-if="revealed">
             <p class="rd-copy">{{ current.meaningZh }}</p>
             <p class="rd-sentence" style="font-size: 28px" translate="no">{{ current.example }}</p>
-            <p class="rd-copy">{{ current.exampleZh }}</p>
+            <BlurText v-if="current.exampleZh" :text="current.exampleZh" :clear="translation" @toggle="translation = !translation" />
           </div>
           <label class="formal-check"><input type="checkbox" v-model="formal" :disabled="ratingBusy" /> <span>将本次计入正式复习。不勾选时只做提前练习，不改下一次时间。</span></label>
         </div>
         <div class="grade-grid" role="group" aria-label="记忆评分">
-          <button class="rd-pill rate rate-again" type="button" :disabled="ratingBusy" @click="submit('again')">忘记</button>
-          <button class="rd-pill rate rate-hard" type="button" :disabled="ratingBusy" @click="submit('hard')">困难</button>
-          <button class="rd-pill rate rate-good" type="button" :disabled="ratingBusy" @click="submit('good')">记得</button>
-          <button class="rd-pill rate rate-easy" type="button" :disabled="ratingBusy" @click="submit('easy')">非常熟悉</button>
+          <button v-for="grade in grades" :key="grade.id" class="rd-pill rate" :class="'rate-'+grade.id" type="button" :disabled="ratingBusy || !revealed" @click="submit(grade.id)">{{ grade.label }}<span v-if="formal"> · {{ intervalLabel(current, grade.id) }}</span></button>
         </div>
       </aside>
       <aside v-else-if="completed.size && queueFinished" class="rd-notes" role="status">
@@ -52,6 +49,8 @@
 
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from "vue";
+import BlurText from "../preview/BlurText.vue";
+import { grades, intervalLabel } from "../lib/reviewPresentation";
 import { useRoute } from "vue-router";
 import { api } from "../api";
 import { formatDue, formatWhen } from "../lib/due";
@@ -77,6 +76,7 @@ const feedback = ref("");
 const ratingBusy = ref(false);
 const missing = ref("");
 const revealed = ref(false);
+const translation = ref(false);
 const loaded = ref(false);
 const completed = ref(new Set<string>());
 const queueFinished = ref(false);
@@ -97,6 +97,7 @@ function open(item: any) {
   current.value = item;
   formal.value = route.query.practice !== "1" && !item.knownAlready && new Date(item.due) <= new Date();
   revealed.value = false;
+  translation.value = false;
   feedback.value = "";
   missing.value = "";
 }

@@ -44,6 +44,15 @@ export function previewDays(card: StoredCard, now = new Date()) {
   };
 }
 
+export function previewMinutes(card: StoredCard, now = new Date()) {
+  const preview = scheduler.repeat(toCard(card), now);
+  const minutes = (due: Date) => Math.max(0, (due.getTime() - now.getTime()) / 60000);
+  return {
+    again: minutes(preview[Rating.Again].card.due), hard: minutes(preview[Rating.Hard].card.due),
+    good: minutes(preview[Rating.Good].card.due), easy: minutes(preview[Rating.Easy].card.due),
+  };
+}
+
 function fromCard(card: Card): StoredCard {
   return {
     due: card.due,

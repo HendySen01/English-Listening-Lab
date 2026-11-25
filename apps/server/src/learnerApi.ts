@@ -6,7 +6,7 @@ import { practiceOwnWord, rateOwnWord } from "./learnerReview.js";
 import { AppError } from "./errors.js";
 import { THEME_ZH } from "./content.js";
 import { readStudyTimeZone, studyDate, studyDayBounds, studyNow, studyWeek } from "./studyTime.js";
-import { previewDays, type RatingName } from "./srs.js";
+import { previewDays, previewMinutes, type RatingName } from "./srs.js";
 import { learnerDb } from "./runtimeClients.js";
 import { studyPreferences, updateStudyPreferences } from "./studyPreferences.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -743,6 +743,7 @@ export async function ownReviewQueue(learner: VerifiedLearner, now = new Date(),
         stability: row.stability,
         userId: row.userId,
         intervals: previewDays(row, now),
+        intervalMinutes: previewMinutes(row, now),
       };
     }),
   };
