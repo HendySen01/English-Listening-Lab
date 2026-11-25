@@ -10,9 +10,10 @@
           <button class="rd-pill" type="button" :disabled="index === passages.length - 1" @click="index += 1">下一句</button>
           <button class="rd-pill primary" type="button" @click="speak(passages[index].sentence)">朗读句子</button>
           <span class="rd-segment" role="group" aria-label="语速">
-            <button v-for="item in rates" :key="item" class="rd-pill" type="button" :aria-pressed="rate === item" @click="setRate(item)">{{ item }}×</button>
+            <button v-for="item in rates" :key="item" class="rd-pill" type="button" :aria-pressed="rate === item" :disabled="rateBusy" @click="setRate(item)">{{ item }}×</button>
           </span>
         </div>
+        <p v-if="rateError" class="rd-note" role="status">{{ rateError }}</p>
         <p class="rd-sentence" translate="no">
           <template v-for="(token, tokenIndex) in tokens" :key="tokenIndex">
             <button v-if="token.key" class="rd-token" type="button" :aria-pressed="selected === token.key" @click="selected = token.key">{{ token.text }}</button>
@@ -49,7 +50,7 @@ import BlurText from "../preview/BlurText.vue"
 import ReaderNotes from "../preview/ReaderNotes.vue"
 import { useExplanation } from "../preview/explain"
 import { tokenize } from "../preview/reader-data"
-import { useSpeech } from "../composables/useSpeech"
+import { useStudySpeech } from "../composables/useStudySpeech"
 import { api } from "../api"
 import { useAppStore, type Lesson } from "../stores/app"
 import { useStudyClock } from "../composables/useStudyClock"
@@ -63,14 +64,8 @@ const errorText = ref("")
 const index = ref(0)
 const selected = ref("")
 const clear = ref(false)
-const rate = ref(1)
-const rates = [0.8, 1, 1.2]
 const voice = ref("浏览器语音，尚未播放")
-const speech = useSpeech()
-function setRate(next: number) {
-  rate.value = next
-  speech.changeRate(next)
-}
+const { speech, rate, rates, rateBusy, rateError, setRate } = useStudySpeech()
 const passages = computed(() => {
   if (!lesson.value) return []
   const chunks = lesson.value.listening.chunks.filter(Boolean).map((sentence, chunkIndex) => ({

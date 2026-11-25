@@ -109,3 +109,23 @@ export function sameStudyDay(left: Date, right: Date, timeZone = readStudyTimeZo
   const zone = readStudyTimeZone(timeZone);
   return studyDate(left, zone) === studyDate(right, zone);
 }
+
+export function studyWeek(now = studyNow()) {
+  const today = studyDate(now, defaultStudyTimeZone);
+  const weekday = new Date(`${today}T00:00:00Z`).getUTCDay();
+  const monday = addStudyDays(today, -((weekday + 6) % 7));
+  const start = studyDayBounds(monday, defaultStudyTimeZone).start;
+  const end = studyDayBounds(today, defaultStudyTimeZone).end;
+  const dates = Array.from({ length: 7 }, (_, index) => addStudyDays(monday, index));
+  return {
+    today, start, end,
+    summarize(sessions: Array<{ createdAt: Date; minutes: number }>) {
+      const totals = new Map<string, number>();
+      for (const session of sessions) {
+        const date = studyDate(session.createdAt, defaultStudyTimeZone);
+        totals.set(date, (totals.get(date) ?? 0) + session.minutes);
+      }
+      return dates.map((date) => ({ date, minutes: date > today ? null : totals.get(date) ?? 0 }));
+    },
+  };
+}

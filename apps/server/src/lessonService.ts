@@ -1,3 +1,4 @@
+import { studyWeek } from "./studyTime.js";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { BANK } from "./bank.js";
 import { prisma } from "./prisma.js";
@@ -785,23 +786,11 @@ export async function dashboard(now = new Date()) {
     }
   }
   const due = await dueCount(now);
-  const week = [];
-  for (let offset = 6; offset >= 0; offset -= 1) {
-    const date = addDays(today, -offset);
-    const dayLesson = await prisma.dailyLesson.findFirst({
-      where: { lessonDate: date, active: true },
-      orderBy: { version: "desc" },
-    });
-    const start = new Date(`${date}T00:00:00`);
-    const end = new Date(`${date}T23:59:59`);
-    const sessions = await prisma.studySession.findMany({ where: { createdAt: { gte: start, lte: end } } });
-    week.push({
-      date,
-      minutes: sessions.reduce((sum, item) => sum + item.minutes, 0),
-      hasLesson: Boolean(dayLesson),
-      words: dayLesson?.newWordCount ?? 0,
-    });
-  }
+  const chart = studyWeek(now);
+  const sessions = await prisma.studySession.findMany({
+    where: { createdAt: { gte: chart.start, lt: chart.end } },
+    select: { createdAt: true, minutes: true },
+  });
   const recommendation = await recommend(settings.recommendationsEnabled, settings.dailyNewWords, due);
   return {
     date: today,
@@ -812,7 +801,8 @@ export async function dashboard(now = new Date()) {
     estimatedMinutes: estimateMinutes(settings.dailyNewWords, due, settings.wordPartsEnabled),
     lesson: lesson ? presentLesson(lesson) : null,
     generateError,
-    week,
+    week: chart.summarize(sessions),
+    weekToday: chart.today,
     recommendation,
     resumeStep: lesson ? JSON.parse(lesson.progress).step : null,
     reviewedToday: (await canonicalProgress()).filter((row) => row.lastReview && row.lastReview >= new Date(now.getFullYear(), now.getMonth(), now.getDate())).length,

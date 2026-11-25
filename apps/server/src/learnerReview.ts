@@ -1,10 +1,12 @@
 // 正式复习沿用现有 FSRS 计算、进度版本校验和事务。
-// 查询、幂等和同形词镜像都限制在当前 Learner，不重算已有历史。
+// 查询、幂等和同义项进度同步都限制在当前 Learner，不重算已有历史。
 import type { VerifiedLearner } from "./learnerIdentity.js";
 import { AppError } from "./errors.js";
 import { previewDays, schedule, type RatingName, type StoredCard } from "./srs.js";
 import { learnerTransactionOptions, lockLearnerScope } from "./learnerLock.js";
 import { learnerDb } from "./runtimeClients.js";
+
+import { reviewGroups, reviewRows, senseKey } from "./reviewSenses.js";
 
 const requestIdPattern = /^[A-Za-z0-9_-]{8,80}$/;
 
@@ -140,39 +142,6 @@ async function replay(db: ReviewClient, learnerId: string, requestId: string, vo
   };
 }
 
-async function mirrorOwnLemma(db: ReviewClient, learnerId: string, vocabularyId: string) {
-  const current = await db.wordProgress.findFirst({ where: { vocabularyId, userId: learnerId }, include: { vocabulary: true } });
-  if (!current) return;
-  const key = current.vocabulary.lemma.trim().toLowerCase();
-  const siblings = (await db.vocabulary.findMany({ where: { userId: learnerId, NOT: { id: vocabularyId } } }))
-    .filter((row) => row.lemma.trim().toLowerCase() === key);
-  if (!siblings.length) return;
-  const ids = siblings.map((row) => row.id);
-  await db.wordProgress.updateMany({
-    where: { userId: learnerId, vocabularyId: { in: ids } },
-    data: {
-      due: current.due,
-      stability: current.stability,
-      difficulty: current.difficulty,
-      elapsedDays: current.elapsedDays,
-      scheduledDays: current.scheduledDays,
-      learningSteps: current.learningSteps,
-      reps: current.reps,
-      lapses: current.lapses,
-      state: current.state,
-      lastReview: current.lastReview,
-      correctCount: current.correctCount,
-      incorrectCount: current.incorrectCount,
-      familiarity: current.familiarity,
-      recallAbility: current.recallAbility,
-    },
-  });
-  await db.vocabulary.updateMany({
-    where: { userId: learnerId, id: { in: ids } },
-    data: { knownAlready: current.vocabulary.knownAlready },
-  });
-}
-
 async function applyFormal(
   db: ReviewClient,
   learner: VerifiedLearner,
@@ -193,19 +162,19 @@ async function applyFormal(
       return prior;
     }
   }
-  const progress = await db.wordProgress.findFirst({ where: { vocabularyId, userId: learner.learnerId } });
-  if (!progress) throw new AppError(404, "NOT_FOUND", "找不到资源");
+  const rows = await reviewRows(db, learner.learnerId);
+  const target = rows.find((row) => row.vocabularyId === vocabularyId);
+  if (!target) throw new AppError(404, "NOT_FOUND", "找不到资源");
+  const group = reviewGroups(rows.filter((row) => senseKey(row.vocabulary) === senseKey(target.vocabulary)))
+    .find((group) => group.includes(target))!;
+  const progress = group[0];
   if (!sameProgress(progress, expected)) throw new StaleProgress();
-  if (markKnown) {
-    const known = await db.vocabulary.updateMany({ where: { id: vocabularyId, userId: learner.learnerId }, data: { knownAlready: true } });
-    if (known.count !== 1) throw new AppError(404, "NOT_FOUND", "找不到资源");
-  }
   const next = schedule(progress, rating);
   const correct = rating === "good" || rating === "easy";
   const familiarity = familiarityFor(rating);
   const updated = await db.wordProgress.updateMany({
     where: {
-      vocabularyId,
+      vocabularyId: progress.vocabularyId,
       userId: learner.learnerId,
       due: expected.due,
       reps: expected.reps,
@@ -238,7 +207,24 @@ async function applyFormal(
       userId: learner.learnerId,
     },
   });
-  await mirrorOwnLemma(db, learner.learnerId, vocabularyId);
+  const siblings = group.slice(1).map((row) => row.vocabularyId);
+  if (siblings.length) {
+    await db.wordProgress.updateMany({
+      where: { userId: learner.learnerId, vocabularyId: { in: siblings } },
+      data: {
+        ...cardData(next),
+        correctCount: progress.correctCount + (correct ? 1 : 0),
+        incorrectCount: progress.incorrectCount + (correct ? 0 : 1),
+        familiarity, recallAbility,
+      },
+    });
+  }
+  if (markKnown || progress.vocabulary.knownAlready) {
+    await db.vocabulary.updateMany({
+      where: { userId: learner.learnerId, id: { in: group.map((row) => row.vocabularyId) } },
+      data: { knownAlready: true },
+    });
+  }
   if (afterFault) await afterFault();
   return {
     due: next.due,
@@ -263,7 +249,7 @@ async function runReviewTransaction<T>(
     try {
       const run = async (tx: ReviewClient) => {
         reviewStarts += 1;
-        await lockLearnerScope(tx, `fsrs:${vocabularyId}`);
+        await lockLearnerScope(tx, `fsrs:${learnerId}`);
         return work(tx);
       };
       const options = learnerTransactionOptions();
@@ -313,7 +299,8 @@ export async function practiceOwnWord(learner: VerifiedLearner, vocabularyId: st
         const prior = await replay(tx, learner.learnerId, requestId, vocabularyId, "practice", rating);
         if (prior) return prior;
       }
-      const progress = await tx.wordProgress.findFirst({ where: { vocabularyId, userId: learner.learnerId } });
+      const progress = reviewGroups(await reviewRows(tx, learner.learnerId))
+        .find((group) => group.some((row) => row.vocabularyId === vocabularyId))?.[0];
       if (!progress) throw new AppError(404, "NOT_FOUND", "找不到资源");
       await tx.reviewEvent.create({
         data: {

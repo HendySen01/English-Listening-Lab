@@ -66,15 +66,13 @@
       <p v-if="system?.ttsHost" class="muted">{{ system.ttsHost }} · {{ system.ttsModel }} · 音色 {{ system.ttsVoice }}</p>
       <p v-if="system?.ttsNote">{{ system.ttsNote }}</p>
       <p>浏览器语音：{{ browserVoices }}</p>
-      <label class="field">语速，立即作用于浏览器播放
-        <select v-model.number="form.speechRate">
-          <option :value="0.8">0.8 倍</option>
-          <option :value="0.9">0.9 倍</option>
-          <option :value="1">1.0 倍</option>
-          <option :value="1.1">1.1 倍</option>
-          <option :value="1.2">1.2 倍</option>
+      <label class="field">全站播放语速
+        <select :value="store.speechRate" :disabled="store.speechRateBusy" @change="changeRate">
+          <option v-for="rate in speechRates" :key="rate" :value="rate">{{ rate }}×</option>
         </select>
+        <small>立即应用于浏览器朗读和在线语音，并保存到当前学习空间。</small>
       </label>
+      <p v-if="store.speechRateError" class="bad" role="status">{{ store.speechRateError }}</p>
     </article>
     <article class="card stack" v-show="section === 'look'">
       <h2>外观</h2>
@@ -107,7 +105,7 @@
 import { onMounted, ref } from "vue";
 import { api } from "../api";
 import { formatWhen } from "../lib/due";
-import { applyTheme, useAppStore } from "../stores/app";
+import { applyTheme, speechRates, useAppStore } from "../stores/app";
 import { sessionUser } from "../lib/authClient";
 
 const store = useAppStore();
@@ -141,12 +139,17 @@ const aiBusy = ref(false);
 const browserVoices = ref("正在检查");
 const mailConfigured = ref<boolean | null>(null);
 
+function changeRate(event: Event) {
+  void store.setSpeechRate(Number((event.target as HTMLSelectElement).value));
+}
+
 async function save() {
   try {
-    form.value = await api("/api/settings", { method: "PUT", body: JSON.stringify(form.value) });
+    const { speechRate, ...plan } = form.value;
+    form.value = await api("/api/settings", { method: "PUT", body: JSON.stringify(plan) });
     applyTheme(form.value.colorMode);
     if (store.dashboard) store.dashboard.settings = form.value;
-    message.value = "已保存。学习计划从下一次新课开始使用；颜色和语速现在生效。";
+    message.value = "已保存。学习计划从下一次新课开始使用；颜色现在生效。";
     error.value = false;
   } catch (err) {
     message.value = err instanceof Error ? err.message : "保存失败";

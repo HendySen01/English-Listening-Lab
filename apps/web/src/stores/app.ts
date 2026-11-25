@@ -1,12 +1,15 @@
 import { defineStore } from "pinia";
 import { api } from "../api";
 
+export const speechRates = [0.8, 0.9, 1, 1.1, 1.2];
+
 export type Lesson = {
   id: string;
   lessonDate: string;
   theme: string;
   themeLabel: string;
   difficulty: string;
+  learningDirection?: string | null;
   newWordCount: number;
   estimatedMinutes: number;
   source: string;
@@ -71,15 +74,50 @@ export const useAppStore = defineStore("app", {
     dashboard: null as any,
     system: null as any,
     loading: false,
+    speechRate: 1,
+    speechRateBusy: false,
+    speechRateError: "",
+    speechRateVersion: 0,
     error: "",
   }),
   actions: {
+    async setSpeechRate(rate: number) {
+      if (this.speechRateBusy || rate === this.speechRate || !speechRates.includes(rate)) return;
+      const previous = this.speechRate;
+      const version = ++this.speechRateVersion;
+      this.speechRate = rate;
+      this.speechRateBusy = true;
+      this.speechRateError = "";
+      try {
+        const settings = await api<{ speechRate: number }>("/api/settings", {
+          method: "PUT", body: JSON.stringify({ speechRate: rate }),
+        });
+        if (version === this.speechRateVersion) this.speechRate = settings.speechRate;
+      } catch (error) {
+        if (version !== this.speechRateVersion) return;
+        this.speechRate = previous;
+        this.speechRateError = error instanceof Error ? error.message : "语速保存失败";
+      } finally {
+        if (version === this.speechRateVersion) this.speechRateBusy = false;
+      }
+    },
+    resetSession() {
+      this.speechRateVersion += 1;
+      this.speechRate = 1;
+      this.speechRateBusy = false;
+      this.speechRateError = "";
+      this.dashboard = null;
+    },
     async load() {
+      const rateVersion = this.speechRateVersion;
       this.loading = true;
       this.error = "";
       try {
         const [dashboard, system] = await Promise.all([api<any>("/api/dashboard"), api<any>("/api/system")]);
         this.dashboard = dashboard;
+        if (this.speechRateVersion === rateVersion && !this.speechRateBusy) {
+          this.speechRate = dashboard.settings.speechRate ?? 1;
+        }
         this.system = system;
         applyTheme(dashboard.settings.colorMode);
       } catch (error) {

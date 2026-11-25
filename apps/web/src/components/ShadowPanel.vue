@@ -5,10 +5,11 @@
     <p class="word" style="font-size: 28px">{{ plain }}</p>
     <div class="row">
       <button class="choice active" @click="speech.play(plain, rate)">播放这一句</button>
-      <button class="choice" @click="speech.play(plain, 0.8)">慢一点</button>
+        <button v-for="speed in rates" :key="speed" type="button" class="choice" :aria-pressed="rate === speed" :disabled="rateBusy" @click="setRate(speed)">{{ speed }}×</button>
       <button class="choice" @click="mark('followed')">跟上了</button>
       <button class="choice" @click="mark('missed')">没跟上</button>
     </div>
+    <p v-if="rateError" class="bad" role="status">{{ rateError }}</p>
     <p class="audio-state">{{ speech.status.value }} · {{ speech.sourceLabel.value }} {{ speech.detail.value }}</p>
     <p>第 {{ index + 1 }} / {{ lines.length }} 句</p>
     <button class="choice" v-if="done" @click="emit('save', { ...lesson.progress, step: 'recall' })">去做回忆和测验</button>
@@ -17,12 +18,12 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { useSpeech } from "../composables/useSpeech";
+import { useStudySpeech } from "../composables/useStudySpeech";
 import type { Lesson, Progress } from "../stores/app";
 
-const props = defineProps<{ lesson: Lesson; rate: number }>();
+const props = defineProps<{ lesson: Lesson }>();
 const emit = defineEmits<{ save: [progress?: Progress] }>();
-const speech = useSpeech();
+const { speech, rate, rates, rateBusy, rateError, setRate } = useStudySpeech();
 const lines = computed(() => props.lesson.listening.chunks.map((line) => line.replace(/\s*\/\s*/g, " ")));
 const index = computed(() => props.lesson.progress.shadow.index || 0);
 const plain = computed(() => lines.value[index.value] || "");

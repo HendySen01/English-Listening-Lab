@@ -7,7 +7,7 @@
           <span>{{ data.dateLabel }}</span>
         </p>
         <h2>{{ data.lesson?.listening.title || "今天还没有课程" }}</h2>
-        <p class="lede" v-if="data.lesson">{{ data.themeLabel }} · {{ data.lesson.difficulty }} · {{ data.lesson.newWordCount }} 个新词 · 约 {{ data.lesson.estimatedMinutes || data.estimatedMinutes }} 分钟</p>
+        <p class="lede" v-if="data.lesson">{{ lessonMetadata(data.lesson) }}</p>
         <p class="lede" v-else>{{ data.generateError || "打开课程页后会按设置准备今天的内容。" }}</p>
         <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="6" :aria-valuenow="done" aria-label="课程进度">
           <span :style="{ width: `${Math.round(done / 6 * 100)}%` }"></span>
@@ -45,16 +45,7 @@
     </div>
 
     <div class="home-lower">
-      <article class="card">
-        <h3>最近七天</h3>
-        <p class="muted">柱高对应学习分钟，数字写在下面。</p>
-        <div class="week-bars">
-          <div v-for="day in bars" :key="day.date">
-            <i :style="{ height: day.height }"></i>
-            <span>{{ day.label }} {{ day.minutes }}</span>
-          </div>
-        </div>
-      </article>
+      <StudyWeek :days="data.week" :today="data.weekToday" />
       <article class="card">
         <h3>词汇回忆</h3>
         <p>今天已经复习 {{ data.reviewedToday }} 个。到期 {{ data.dueCount }} 个。</p>
@@ -75,6 +66,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useAppStore } from "../stores/app";
+import StudyWeek from "../components/StudyWeek.vue";
+import { lessonMetadata } from "../lib/lessonMetadata";
 import { formatDue } from "../lib/due";
 
 const store = useAppStore();
@@ -94,15 +87,6 @@ const currentLabel = computed(() => steps.find((step) => step.id === data.value?
 const nextDue = computed(() => {
   const first = data.value?.upcoming?.[0];
   return first ? `${first.lemma} ${remain(first.due)}` : "";
-});
-const bars = computed(() => {
-  const week = data.value?.week || [];
-  const max = Math.max(1, ...week.map((day: { minutes: number }) => day.minutes));
-  return week.map((day: { date: string; minutes: number }) => ({
-    ...day,
-    label: `周${"日一二三四五六"[new Date(`${day.date}T12:00:00`).getDay()]}`,
-    height: day.minutes ? `${Math.max(8, Math.round(day.minutes / max * 100))}%` : "4px",
-  }));
 });
 let timer = 0;
 function remain(due: string) {

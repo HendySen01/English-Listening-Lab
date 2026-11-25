@@ -221,11 +221,6 @@ html.dark .choice.active, html.dark .step.current, html.dark .play { border-colo
 .step-list { display: grid; gap: 8px; margin: 12px 0 0; padding: 0; list-style: none; }
 .step-list li { display: flex; justify-content: space-between; min-height: 44px; align-items: center; padding: 0 12px; border-radius: 10px; background: var(--hover); }
 .step-list li[data-state="current"] { background: var(--accent-soft); color: var(--accent-text); font-weight: 650; box-shadow: inset 3px 0 0 var(--selected); }
-.week-bars { display: flex; align-items: end; gap: 10px; height: 120px; margin-top: 16px; }
-.week-bars div { flex: 1; display: grid; align-items: end; justify-items: center; gap: 6px; height: 100%; }
-.week-bars i { display: block; width: 100%; border-radius: 8px 8px 2px 2px; background: #b7c4ad; }
-html.dark .week-bars i { background: #6d806c; }
-.week-bars span { font-size: 12px; color: var(--muted); text-align: center; }
 .study-hero, .card, .panel {
   background: var(--paper);
   border: 1px solid var(--line);
@@ -242,9 +237,6 @@ html.dark .week-bars i { background: #6d806c; }
 .stat-overview span, .stat-overview small, .memory-list span { color: var(--muted); font-size: 13px; }
 .stat-overview strong { display: block; font-family: "DM Serif Display", Georgia, serif; font-size: 36px; font-weight: 400; line-height: 1; }
 .stat-main { display: grid; grid-template-columns: 1.4fr 0.8fr; gap: 16px; margin: 16px 0; }
-.week-chart { display: flex; align-items: end; gap: 12px; height: 180px; margin-top: 16px; }
-.week-chart div { flex: 1; display: grid; grid-template-rows: auto 1fr auto; align-items: end; justify-items: center; height: 100%; gap: 6px; }
-.week-chart i { width: 100%; height: 8px; border-radius: 8px 8px 2px 2px; background: #8ea184; }
 .memory-list { list-style: none; margin: 12px 0; padding: 0; }
 .memory-list li { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .timeline { display: grid; gap: 28px; }

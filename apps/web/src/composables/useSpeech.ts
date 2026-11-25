@@ -6,17 +6,20 @@ const detail = ref("");
 const sourceLabel = ref("当前语音：尚未播放");
 let audio: HTMLAudioElement | null = null;
 let playback = 0;
+let owner: symbol | null = null;
 let pending: AbortController | null = null;
 
 export function useSpeech() {
   // Keep only the most recent clip for this player instance. Never persist private audio.
+  const player = Symbol();
   let clip: { text: string; url: string; label: string } | null = null;
   let last: { text: string; rate: number; online: boolean } | null = null;
   let offset = 0;
   let restartOnResume = false;
 
   async function play(text: string, rate: number, useOnline = false, start = 0) {
-    stop();
+    stopPlayback();
+    owner = player;
     const request = { text, rate, online: useOnline };
     last = request;
     offset = start;
@@ -95,6 +98,7 @@ export function useSpeech() {
   }
 
   function pause() {
+    if (owner !== player) return;
     if (audio && !audio.paused) {
       audio.pause();
       status.value = "已暂停";
@@ -108,6 +112,7 @@ export function useSpeech() {
   }
 
   function resume() {
+    if (owner !== player) return;
     if (audio?.paused) {
       const current = playback;
       detail.value = "";
@@ -127,7 +132,12 @@ export function useSpeech() {
   }
 
   function stop() {
+    if (owner === player) stopPlayback();
+  }
+
+  function stopPlayback() {
     playback += 1;
+    owner = null;
     pending?.abort();
     pending = null;
     audio?.pause();
@@ -137,10 +147,10 @@ export function useSpeech() {
   }
 
   function changeRate(rate: number) {
-    if (!last || last.rate === rate) return;
+    if (!last || last.rate === rate || owner !== player) return;
     last.rate = rate;
     if (audio) audio.playbackRate = rate;
-    else if (!last.online && status.value === "播放中") void play(last.text, rate, false, offset);
+    else if (!last.online && (status.value === "播放中" || status.value === "准备")) void play(last.text, rate, false, offset);
     else if (!last.online && status.value === "已暂停") restartOnResume = true;
   }
 

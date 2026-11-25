@@ -5,17 +5,17 @@
     <div class="rd-frame rd-workspace lib-workspace" :class="{ 'is-detail': Boolean(current) && narrow }">
       <div class="rd-read lib-list">
         <div class="rd-segment" role="group" aria-label="复习筛选">
-          <button v-for="item in filters" :key="item.id" class="rd-pill" type="button" :aria-pressed="filter === item.id" @click="filter = item.id; load()">{{ item.label }}</button>
+          <button v-for="item in filters" :key="item.id" class="rd-pill" type="button" :aria-pressed="filter === item.id" :disabled="ratingBusy" @click="filter = item.id; resetQueue()">{{ item.label }}</button>
         </div>
-        <input class="rd-field" v-model="query" placeholder="搜索单词或中文" @input="load" />
-        <button v-for="item in items" :key="item.id" class="lib-row" type="button" :aria-pressed="current?.id === item.id" @click="open(item)">
+        <input class="rd-field" v-model="query" placeholder="搜索单词或中文" :disabled="ratingBusy" @input="resetQueue" />
+        <button v-for="item in items" :key="item.id" class="lib-row" type="button" :aria-pressed="current?.id === item.id" :disabled="ratingBusy" @click="open(item)">
           <strong translate="no">{{ item.lemma }}</strong>
           <span>{{ familiarityLabel(item.familiarity) }} · {{ remain(item.due) }}</span>
         </button>
         <p v-if="!items.length" class="rd-note">这个筛选下没有词。</p>
       </div>
       <aside class="rd-notes" v-if="current">
-        <button v-if="narrow" class="rd-pill" type="button" @click="current = null">返回列表</button>
+        <button v-if="narrow" :disabled="ratingBusy" class="rd-pill" type="button" @click="current = null">返回列表</button>
         <p class="rd-kicker">先回忆，再看答案</p>
         <h2 class="rd-word" translate="no">{{ current.lemma }}</h2>
         <p class="rd-meta">{{ current.pos }} <span v-if="current.ipa" translate="no">{{ current.ipa }}</span></p>
@@ -31,7 +31,7 @@
             <p class="rd-sentence" style="font-size: 28px" translate="no">{{ current.example }}</p>
             <p class="rd-copy">{{ current.exampleZh }}</p>
           </div>
-          <label class="formal-check"><input type="checkbox" v-model="formal" /> <span>将本次计入正式复习。不勾选时只做提前练习，不改下一次时间。</span></label>
+          <label class="formal-check"><input type="checkbox" v-model="formal" :disabled="ratingBusy" /> <span>将本次计入正式复习。不勾选时只做提前练习，不改下一次时间。</span></label>
         </div>
         <div class="grade-grid" role="group" aria-label="记忆评分">
           <button class="rd-pill rate rate-again" type="button" :disabled="ratingBusy" @click="submit('again')">忘记</button>
@@ -39,6 +39,10 @@
           <button class="rd-pill rate rate-good" type="button" :disabled="ratingBusy" @click="submit('good')">记得</button>
           <button class="rd-pill rate rate-easy" type="button" :disabled="ratingBusy" @click="submit('easy')">非常熟悉</button>
         </div>
+      </aside>
+      <aside v-else-if="completed.size && queueFinished" class="rd-notes" role="status">
+        <h2>本轮复习完成</h2>
+        <p>已完成 {{ completed.size }} 个词的正式复习。</p>
       </aside>
       <aside v-else class="rd-notes"><p class="rd-note">选择一个到期的词。没有记录时不会新建。</p></aside>
     </div>
@@ -74,6 +78,9 @@ const ratingBusy = ref(false);
 const missing = ref("");
 const revealed = ref(false);
 const loaded = ref(false);
+const completed = ref(new Set<string>());
+const queueFinished = ref(false);
+let loadVersion = 0;
 const narrow = ref(window.matchMedia("(max-width: 900px)").matches);
 const now = ref(new Date());
 let timer = 0;
@@ -94,10 +101,26 @@ function open(item: any) {
   missing.value = "";
 }
 async function load() {
-  const data = await api<{ items: any[] }>(`/api/review?filter=${filter.value}&q=${encodeURIComponent(query.value)}`);
+  const version = ++loadVersion;
+  const data = await api<{ items: any[] }>(`/api/review?filter=${filter.value}&q=${encodeURIComponent(query.value)}&focus=${encodeURIComponent(String(route.query.focus || ""))}`);
+  if (version !== loadVersion) return false;
   items.value = data.items;
-  if (current.value) current.value = data.items.find((item) => item.id === current.value.id) || null;
-  else if (!narrow.value && data.items[0]) open(data.items[0]);
+  return true;
+}
+async function resetQueue() {
+  completed.value.clear();
+  queueFinished.value = false;
+  try {
+    if (!await load()) return;
+    const selected = items.value.find((item) => item.id === current.value?.id);
+    if (selected) current.value = selected;
+    else if (!narrow.value && items.value[0]) open(items.value[0]);
+    else current.value = null;
+  } catch (error) {
+    feedback.value = error instanceof Error ? error.message : "无法读取复习队列。";
+  } finally {
+    loaded.value = true;
+  }
 }
 async function submit(rating: string) {
   if (!current.value || ratingBusy.value) return;
@@ -105,24 +128,39 @@ async function submit(rating: string) {
     missing.value = "先显示答案，再评分。";
     return;
   }
+  const card = current.value;
+  const isFormal = formal.value;
   ratingBusy.value = true;
   try {
-    const payload: Record<string, unknown> = { rating, formal: formal.value };
-    if (formal.value) payload.progress = progressStamp(current.value);
+    const payload: Record<string, unknown> = { rating, formal: isFormal };
+    if (isFormal) payload.progress = progressStamp(card);
     const result = await withReviewRequest(
-      `${formal.value ? "formal" : "practice"}:${current.value.id}`,
+      `${isFormal ? "formal" : "practice"}:${card.id}`,
       payload,
-      (body) => api<{ note: string; due: string; changedSchedule: boolean }>(`/api/review/${current.value.id}/practice`, {
+      (body) => api<{ note: string; due: string; changedSchedule: boolean }>(`/api/review/${card.id}/practice`, {
         method: "POST",
         body: JSON.stringify(body),
       }),
     );
-    feedback.value = `${result.note} 下次复习：${formatWhen(result.due)}，${formatDue(result.due, new Date())}。`;
-    await load();
-    formal.value = false;
+    const note = `${result.note} 下次复习：${formatWhen(result.due)}，${formatDue(result.due, new Date())}。`;
+    if (result.changedSchedule) {
+      completed.value.add(card.id);
+      current.value = null;
+      queueFinished.value = false;
+      try {
+        if (!await load()) return;
+        const next = items.value.find((item) => !completed.value.has(item.id)
+          && !item.knownAlready && new Date(item.due) <= new Date());
+        if (next) open(next);
+        else queueFinished.value = true;
+      } catch {
+        feedback.value = `${note} 队列刷新失败，可以切换筛选重新读取。`;
+        return;
+      }
+    }
+    feedback.value = note;
   } catch (error) {
     feedback.value = error instanceof Error ? error.message : "这次评分没有写入。";
-    await load();
   } finally {
     ratingBusy.value = false;
   }
@@ -133,9 +171,9 @@ async function selectTarget() {
     filter.value = "all";
     query.value = "";
   }
-  await load();
+  await resetQueue();
   if (focus) {
-    const found = items.value.find((item) => item.id === focus);
+    const found = items.value.find((item) => item.id === focus || item.relatedIds?.includes(focus));
     if (found) open(found);
     else missing.value = "这个词不在现有复习队列里。页面没有新建记录。";
   }
@@ -145,7 +183,11 @@ watch(() => [route.query.focus, route.query.practice], () => { void selectTarget
 onMounted(async () => {
   await selectTarget();
   timer = window.setInterval(() => { now.value = new Date(); }, 30000);
-  window.addEventListener("resize", () => { narrow.value = window.matchMedia("(max-width: 900px)").matches; });
+  window.addEventListener("resize", resize);
 });
-onUnmounted(() => window.clearInterval(timer));
+function resize() { narrow.value = window.matchMedia("(max-width: 900px)").matches; }
+onUnmounted(() => {
+  window.clearInterval(timer);
+  window.removeEventListener("resize", resize);
+});
 </script>

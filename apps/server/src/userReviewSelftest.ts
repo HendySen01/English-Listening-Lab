@@ -117,6 +117,9 @@ for (const id of ["same_request", "same_snapshot", "mixed", "practice", "rollbac
 }
 await seedWord("vocab_mirror", learnerA.learnerId, 2, 1.5, "shared-lemma");
 await seedWord("vocab_mirror_b", learnerA.learnerId, 2, 1.5, "shared-lemma");
+await seedWord("vocab_other_sense", learnerA.learnerId, 2, 1.5, "shared-lemma");
+await user.vocabulary.update({ where: { id: "vocab_other_sense" }, data: { meaningZh: "其他义项" } });
+await seedWord("vocab_conflicting_history", learnerA.learnerId, 7, 9, "shared-lemma");
 await seedWord("vocab_b", learnerB.learnerId, 5, 4.5, "shared-lemma");
 
 function versionOf(row: { due: Date; reps: number; lapses: number; state: number; lastReview: Date | null; correctCount: number; incorrectCount: number }) {
@@ -228,10 +231,16 @@ check(
 const replayA = await rateOwnWord(learnerA, "vocab_plain", "good", "recall", "cross-user-1844", versionOf(ownA));
 check("[并发] 重复请求不返回另一个用户的复习时间", replayA.replayed === true && replayA.due.getTime() === aRated.due.getTime() && replayA.due.getTime() !== bRated.due.getTime());
 
+const senseBefore = await progress("vocab_other_sense");
+const conflictBefore = await progress("vocab_conflicting_history");
 const mirrorBefore = await progress("vocab_mirror");
 await rateOwnWord(learnerA, "vocab_mirror", "good", "recall", "mirror-user-a-1844", versionOf(mirrorBefore));
 const mirrorAfter = await progress("vocab_mirror");
 const sibling = await progress("vocab_mirror_b");
+check("[复习] 不同义项和有冲突的历史排程保持独立",
+  fsrsSame(await progress("vocab_other_sense"), senseBefore)
+  && fsrsSame(await progress("vocab_conflicting_history"), conflictBefore));
+
 const bMirror = await user.wordProgress.findFirstOrThrow({ where: { vocabularyId: "vocab_b" } });
 check(
   "[并发] 同形词镜像只更新当前用户",

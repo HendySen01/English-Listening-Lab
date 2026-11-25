@@ -31,7 +31,7 @@ const { createPrivateTestAccount } = await import("./auth.ts");
 const { disconnectAuthPrisma } = await import("./authDatabase.ts");
 const { createUserRuntimeApp } = await import("./userRuntimeApp.ts");
 const { disconnectUserPrisma, getUserPrisma } = await import("./userDatabase.ts");
-const { addStudyDays, readStudyTimeZone, sameStudyDay, setStudyClock, studyDate, studyDayBounds } = await import("./studyTime.ts");
+const { addStudyDays, readStudyTimeZone, sameStudyDay, setStudyClock, studyDate, studyDayBounds, studyWeek } = await import("./studyTime.ts");
 const { ownStats } = await import("./learnerApi.ts");
 
 const failures: string[] = [];
@@ -42,6 +42,16 @@ function check(name: string, condition: boolean) {
 
 const beforeMidnight = new Date("2026-11-23T15:59:59.999Z");
 const afterMidnight = new Date("2026-11-23T16:00:00.000Z");
+const yearWeek = studyWeek(new Date("2026-12-31T16:00:00Z"));
+const yearTotals = yearWeek.summarize([
+  { createdAt: new Date("2026-12-31T15:59:59Z"), minutes: 4 },
+  { createdAt: new Date("2026-12-31T16:00:00Z"), minutes: 7 },
+]);
+check("[时区] 本周从上海周一到周日，跨年时区分过去零分钟与未来",
+  yearWeek.today === "2027-01-01" && yearTotals[0].date === "2026-12-28"
+  && yearTotals[6].date === "2027-01-03" && yearTotals[0].minutes === 0
+  && yearTotals[3].minutes === 4 && yearTotals[4].minutes === 7 && yearTotals[5].minutes === null
+  && studyWeek(new Date("2027-01-03T16:00:00Z")).summarize([])[0].date === "2027-01-04");
 check("[时区] 上海午夜前仍是 2026-11-23", studyDate(beforeMidnight) === "2026-11-23");
 check("[时区] 上海午夜后进入 2026-11-24", studyDate(afterMidnight) === "2026-11-24");
 check("[时区] UTC 午夜附近仍属于上海 11 月 23 日", studyDate(new Date("2026-11-23T00:00:00.000Z")) === "2026-11-23" && sameStudyDay(new Date("2026-11-23T00:00:00.000Z"), beforeMidnight));
@@ -103,6 +113,7 @@ removeDatabase(authRuntimeFile);
 await backupLabReadonly(runtimeFile);
 const migrated = new DatabaseSync(runtimeFile);
 assignLearnerOwnership(migrated);
+migrated.exec(fs.readFileSync(path.join(repoRoot, "apps/server/prisma-neon-user/migrations/20261125120000_learning_direction/migration.sql"), "utf8"));
 const originalLessons = JSON.stringify(migrated.prepare("SELECT id, lessonDate, version, active FROM DailyLesson WHERE userId = ? ORDER BY id").all(originalLearnerId));
 const originalFsrs = JSON.stringify(migrated.prepare("SELECT id, due, lastReview, stability, difficulty, reps, lapses, state FROM WordProgress WHERE userId = ? ORDER BY id").all(originalLearnerId));
 migrated.close();

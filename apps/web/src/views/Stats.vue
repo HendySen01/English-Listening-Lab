@@ -1,23 +1,13 @@
 <template>
   <section v-if="data && dash && words">
     <div class="stat-overview">
-      <article><span>近七日</span><strong>{{ weekMinutes }}</strong><small>分钟</small></article>
+      <article><span>本周学习</span><strong>{{ weekMinutes }}</strong><small>分钟</small></article>
       <article><span>词库</span><strong>{{ data.words }}</strong><small>个词</small></article>
       <article><span>已复习</span><strong>{{ data.reviews }}</strong><small>个有记录的词</small></article>
       <article><span>理解题</span><strong>{{ data.quizTotal }}</strong><small>次作答</small></article>
     </div>
     <div class="stat-main">
-      <article class="card">
-        <h3>最近七天</h3>
-        <p v-if="weekMinutes === 0" class="muted">这七天没有记下学习分钟。以前的学习没有写入时长，页面不会补成假数据。从现在起，课程、语境、听力和复习停留满一分钟后才会记上一笔。</p>
-        <div v-else class="week-chart">
-          <div v-for="day in bars" :key="day.date">
-            <b>{{ day.minutes }}</b>
-            <i :style="{ height: day.height }"></i>
-            <span>{{ day.label }}</span>
-          </div>
-        </div>
-      </article>
+      <StudyWeek :days="dash.week" :today="dash.weekToday" />
       <article class="card">
         <h3>词汇记忆</h3>
         <ul class="memory-list">
@@ -47,27 +37,23 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import StudyWeek from "../components/StudyWeek.vue";
 import { api } from "../api";
 
 const data = ref<any>(null);
 const dash = ref<any>(null);
 const words = ref<any[] | null>(null);
-const weekMinutes = computed(() => (dash.value?.week || []).reduce((sum: number, day: { minutes: number }) => sum + day.minutes, 0));
-const bars = computed(() => {
-  const week = dash.value?.week || [];
-  const max = Math.max(1, ...week.map((day: { minutes: number }) => day.minutes));
-  return week.map((day: { date: string; minutes: number }) => ({
-    ...day,
-    label: `${day.date.slice(5)} 周${"日一二三四五六"[new Date(`${day.date}T12:00:00`).getDay()]}`,
-    height: `${Math.max(8, Math.round(day.minutes / max * 100))}%`,
-  }));
-});
+const weekMinutes = computed(() => (dash.value?.week || []).reduce((sum: number, day: { minutes: number | null }) => sum + (day.minutes ?? 0), 0));
 const memory = computed(() => {
   const now = Date.now();
   const buckets = { fresh: 0, learning: 0, due: 0, known: 0 };
+  const seen = new Set<string>();
   for (const word of words.value || []) {
+    const reviewId = word.reviewId ?? word.id;
+    if (seen.has(reviewId)) continue;
+    seen.add(reviewId);
     if (word.knownAlready || word.familiarity === "easy") buckets.known += 1;
-    else if (word.due && new Date(word.due).getTime() <= now && word.reps > 0) buckets.due += 1;
+    else if (word.due && new Date(word.due).getTime() <= now) buckets.due += 1;
     else if (!word.reps) buckets.fresh += 1;
     else buckets.learning += 1;
   }

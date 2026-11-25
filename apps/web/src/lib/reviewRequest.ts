@@ -38,7 +38,7 @@ function samePayload(saved: Record<string, unknown>, payload: Record<string, unk
   delete previous.clientRequestId;
   const keys = new Set([...Object.keys(previous), ...Object.keys(payload)]);
   for (const key of keys) {
-    if (previous[key] !== payload[key]) return false;
+    if (JSON.stringify(previous[key]) !== JSON.stringify(payload[key])) return false;
   }
   return true;
 }

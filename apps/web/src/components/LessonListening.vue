@@ -11,10 +11,11 @@
       <button class="rd-pill" type="button" @click="replay">重播</button>
       <button v-if="onlineAvailable" class="rd-pill" type="button" :disabled="speech.status.value === '准备'" @click="playOnline">在线朗读</button>
       <span class="rd-segment" role="group" aria-label="语速">
-        <button v-for="item in rates" :key="item" class="rd-pill" type="button" :aria-pressed="rate === item" @click="setRate(item)">{{ item }}×</button>
+        <button v-for="item in rates" :key="item" class="rd-pill" type="button" :aria-pressed="rate === item" :disabled="rateBusy" @click="setRate(item)">{{ item }}×</button>
       </span>
       <span class="rd-source" role="status">{{ speech.sourceLabel.value }} · {{ speech.status.value }}<template v-if="speech.detail.value"> · {{ speech.detail.value }}</template></span>
     </div>
+    <p v-if="rateError" class="rd-note" role="status">{{ rateError }}</p>
     <label v-if="stage === 0" class="rd-note">这段话大概在说什么？
       <textarea v-model="lesson.progress.listening.firstGist" class="rd-field" rows="3" placeholder="用简体中文写一句大意" @change="emit('save')"></textarea>
     </label>
@@ -46,13 +47,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue"
+import { computed, onMounted, ref } from "vue"
 import { Volume2 } from "lucide-vue-next"
 import ExpandFold from "../preview/ExpandFold.vue"
 import ReaderNotes from "../preview/ReaderNotes.vue"
 import { useExplanation } from "../preview/explain"
 import { tokenize } from "../preview/reader-data"
-import { useSpeech } from "../composables/useSpeech"
+import { useStudySpeech } from "../composables/useStudySpeech"
 import { api } from "../api"
 import QuizBlock from "./QuizBlock.vue"
 import type { Lesson, Progress } from "../stores/app"
@@ -63,15 +64,12 @@ const emit = defineEmits<{ save: [progress?: Progress] }>()
 const stages = ["1 盲听", "2 原文", "3 再听", "4 回忆"]
 const stage = ref(Math.max(0, Math.min(3, (props.lesson.progress.listening.round || 1) - 1)))
 const selected = ref("")
-const rate = ref(1)
-const rates = [0.8, 1, 1.2]
-const speech = useSpeech()
+const { speech, rate, rates, rateBusy, rateError, setRate } = useStudySpeech()
 const onlineAvailable = ref(false)
 onMounted(async () => {
   const services = await api<{ ttsUsable?: boolean }>("/api/system").catch(() => null)
   onlineAvailable.value = services?.ttsUsable === true
 })
-onUnmounted(speech.stop)
 
 function playOnline() {
   const text = props.lesson.listening.text
@@ -107,10 +105,6 @@ function setStage(next: number) {
 async function speak(text: string) {
   speech.stop()
   await speech.play(text, rate.value, false)
-}
-function setRate(next: number) {
-  rate.value = next
-  speech.changeRate(next)
 }
 function toggle() {
   if (speech.status.value === "播放中") speech.pause()

@@ -145,6 +145,7 @@ export function mountLearnerBusinessRoutes(app: express.Express) {
     new Date(),
     String(req.query.filter || "due"),
     String(req.query.q || ""),
+    String(req.query.focus || ""),
   ));
   route("post", "/api/review/:id/practice", async (req) => {
     const learner = await learnerOf(req);

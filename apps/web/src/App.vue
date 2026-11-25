@@ -80,7 +80,7 @@ async function setTheme(next: string) {
   store.dashboard.settings.colorMode = next;
   store.dashboard.settings = await api("/api/settings", {
     method: "PUT",
-    body: JSON.stringify(store.dashboard.settings),
+    body: JSON.stringify({ colorMode: next }),
   });
 }
 
@@ -88,7 +88,7 @@ async function signOut() {
   const result = await authClient.signOut();
   if (result.error) return;
   sessionUser.value = null;
-  store.dashboard = null;
+  store.resetSession();
   await router.push("/login");
 }
 

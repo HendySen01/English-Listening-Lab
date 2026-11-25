@@ -34,7 +34,7 @@ delete process.env.ONLINE_TTS_ENABLED;
 const { createPrivateTestAccount } = await import("./auth.ts");
 const { disconnectAuthPrisma, getAuthPrisma } = await import("./authDatabase.ts");
 const { paidAiCalls, resetPaidAiCalls, setPaidAiMock } = await import("./learnerAiGuard.ts");
-const { ownLibrary, ownStats, rateOwnWord } = await import("./learnerApi.ts");
+const { ensureOwnToday, ownLibrary, ownReviewQueue, ownStats, rateOwnWord } = await import("./learnerApi.ts");
 const { createUserRuntimeApp } = await import("./userRuntimeApp.ts");
 const { directionGuidance, lessonLearningGoal, studyPreferences, updateStudyPreferences } = await import("./studyPreferences.ts");
 const { disconnectUserPrisma, getUserPrisma } = await import("./userDatabase.ts");
@@ -175,12 +175,12 @@ async function seed(input: { id: string; authUserId: string; boundAt: Date | nul
         id: `progress_${input.id}_mirror`,
         vocabularyId: `${vocabId}_mirror`,
         due,
-        stability: 1,
+        stability: input.stability,
         difficulty: 5,
         elapsedDays: 0,
         scheduledDays: 1,
         learningSteps: 0,
-        reps: 1,
+        reps: input.reps,
         lapses: 0,
         state: 1,
         firstLearnedAt: createdAt,
@@ -223,7 +223,7 @@ if (!wordA) throw new Error("缺少 A 的词汇");
 const rated = await rateOwnWord(learnerA, wordA.id, "good", "recall", sharedRequest, wordA);
 const mirrored = await user.wordProgress.findFirstOrThrow({ where: { vocabularyId: "vocab_learner_scope_a_mirror" } });
 const afterB = await user.wordProgress.findFirstOrThrow({ where: { vocabularyId: "vocab_learner_scope_b" } });
-check("[服务] A 的正式评分使用事务并镜像到自己的同形词", rated.changedSchedule === true && mirrored.reps === (await user.wordProgress.findFirstOrThrow({ where: { vocabularyId: wordA.id } })).reps);
+check("[服务] A 的正式评分使用事务并镜像到自己的相同义项", rated.changedSchedule === true && mirrored.reps === (await user.wordProgress.findFirstOrThrow({ where: { vocabularyId: wordA.id } })).reps);
 check("[服务] A 的评分不改变 B 的 FSRS", afterB.reps === beforeB.reps && afterB.stability === beforeB.stability && afterB.due.getTime() === beforeB.due.getTime());
 let foreignRejected = false;
 try {
@@ -234,7 +234,7 @@ try {
 check("[服务] 不能按别人的词汇 ID 评分", foreignRejected && (await user.wordProgress.findFirstOrThrow({ where: { vocabularyId: "vocab_learner_scope_b" } })).reps === beforeB.reps);
 const statsA = await ownStats(learnerA);
 const statsB = await ownStats(learnerB);
-check("[服务] 统计只包含当前用户", statsA.words === 2 && statsB.words === 1 && statsA.minutes === 0 && statsB.minutes === 0);
+check("[服务] 统计只包含当前用户", statsA.words === 1 && statsB.words === 1 && statsA.minutes === 0 && statsB.minutes === 0);
 
 const appSource = fs.readFileSync(path.join(repoRoot, "apps/server/src/app.ts"), "utf8");
 const businessSource = fs.readFileSync(path.join(repoRoot, "apps/server/src/learnerApi.ts"), "utf8");
@@ -294,7 +294,7 @@ try {
   const session = await api("/api/sessions", alphaCookie, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lessonId: "lesson_learner_scope_a", module: "lesson", minutes: 10, userId: "learner_scope_b" }) });
   const statsAfter = await (await api("/api/stats?userId=learner_scope_a", betaCookie)).json() as { minutes: number; words: number; quizTotal: number };
   const statsOwn = await (await api("/api/stats", alphaCookie)).json() as { minutes: number; words: number; quizTotal: number };
-  check("[HTTP] 学习时长和统计按用户分开", session.status === 200 && statsOwn.minutes === 10 && statsOwn.words === 2 && statsOwn.quizTotal === 1 && statsAfter.minutes === 0 && statsAfter.words === 1 && statsAfter.quizTotal === 0);
+  check("[HTTP] 学习时长和统计按用户分开", session.status === 200 && statsOwn.minutes === 10 && statsOwn.words === 1 && statsOwn.quizTotal === 1 && statsAfter.minutes === 0 && statsAfter.words === 1 && statsAfter.quizTotal === 0);
   const foreignSession = await api("/api/sessions", betaCookie, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lessonId: "lesson_learner_scope_a", minutes: 12 }) });
   check("[HTTP] B 不能把学习时长记到 A 的课程", foreignSession.status === 404 && (await ownStats(learnerB)).minutes === 0);
   const progressB = await user.wordProgress.findFirstOrThrow({ where: { vocabularyId: "vocab_learner_scope_b" } });
@@ -427,14 +427,14 @@ try {
     process.env.TTS_VOICE = "tide";
     await api("/api/settings", alphaCookie, {
       method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ dailyNewWords: 3, theme: "Custom", customTheme: "Health visits", difficulty: "A2", listeningLevel: "A1", wordPartsEnabled: false, learningDirection: "ielts" }),
+      body: JSON.stringify({ dailyNewWords: 3, theme: "Custom", customTheme: "Health visits", difficulty: "A2", listeningLevel: "A1", wordPartsEnabled: false, learningDirection: "cet6" }),
     });
     const generate = (requestId: string) => api("/api/lessons/ai-version", alphaCookie, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ confirmCost: true, clientRequestId: requestId }),
     });
     const generated = await generate("course-real-path-1");
-    const lesson = await generated.json() as { id: string; words: Array<Record<string, unknown> & { id: string; lemma: string; example: string }>; questions?: unknown[] };
+    const lesson = await generated.json() as { id: string; learningDirection?: string; words: Array<Record<string, unknown> & { id: string; lemma: string; example: string }>; questions?: unknown[] };
     const replay = await generate("course-real-path-1");
     const replayed = await replay.json() as { id: string };
     const rejected = await generate("course-real-path-2");
@@ -450,15 +450,29 @@ try {
       && modelSettings.difficulty === "A2" && modelSettings.listeningLevel === "A1"
       && modelSettings.listeningLength === "short" && modelSettings.morphology === "Always null"
       && saved?.theme === "Health visits" && saved?.difficulty === "A2"
-      && (modelSettings.learningGoal as { direction?: string })?.direction === "ielts");
+      && (modelSettings.learningGoal as { direction?: string })?.direction === "cet6"
+      && (modelSettings.learningGoal as { material?: string })?.material?.includes("CET-6") === true
+      && lesson.learningDirection === "cet6");
     const reloaded = await (await api("/api/settings", alphaCookie)).json() as { learningDirection?: string; difficulty?: string };
     const untouched = await (await api("/api/settings", betaCookie)).json() as { learningDirection?: string };
     check("[HTTP] 学习方向独立于 CEFR，保存后可刷新且隔离",
-      reloaded.learningDirection === "ielts" && reloaded.difficulty === "A2" && untouched.learningDirection === "general");
+      reloaded.learningDirection === "cet6" && reloaded.difficulty === "A2" && untouched.learningDirection === "general");
+    const persistedRate = await api("/api/settings", alphaCookie, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ speechRate: 0.9 }),
+    });
+    const isolatedRate = await (await api("/api/settings", betaCookie)).json() as { speechRate: number };
+    check("[HTTP] 独立保存语速且保留学习方向，另一个账号不变",
+      persistedRate.status === 200 && (await persistedRate.json() as { speechRate: number }).speechRate === 0.9 && isolatedRate.speechRate === 1);
+    await api("/api/settings", alphaCookie, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ learningDirection: "ielts" }),
+    });
     const first = lesson.words.find(word => word.lemma === "clinic")!;
     const progressPatch = await api(`/api/lessons/${lesson.id}/progress`, alphaCookie, {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ progress: { step: "words", completed: ["words"] } }),
     });
+    const rereadLesson = await (await api(`/api/lessons/${lesson.id}`, alphaCookie)).json() as typeof lesson;
+    check("[HTTP] 编辑当前设置和课程进度后，历史课程仍显示 CET-6",
+      rereadLesson.learningDirection === "cet6" && (await progressPatch.clone().json() as typeof lesson).learningDirection === "cet6");
     const library = await (await api("/api/library", alphaCookie)).json() as typeof lesson.words;
     const due = await (await api("/api/review?filter=due", alphaCookie)).json() as { items: typeof lesson.words };
     const all = await (await api("/api/review?filter=all", alphaCookie)).json() as { items: typeof lesson.words };
@@ -479,6 +493,25 @@ try {
     check("[HTTP] 提前练习不改排程，首次正式复习更新词库和统计",
       practice.status === 200 && firstRating.status === 200 && refreshed.some(word => word.id === target.id && word.reps === 1 && word.due !== target.due)
       && statsAfter.reviews === statsBefore.reviews + 1);
+
+    const firstOffline = await ensureOwnToday(learnerA, new Date("2026-08-17T00:00:00Z"));
+    const firstSchedule = firstOffline.words[0];
+    const scheduleBefore = await ownStats(learnerA);
+    await rateOwnWord(learnerA, firstSchedule.id, "good", "recall", "schedule-first-test", firstSchedule);
+    const secondOffline = await ensureOwnToday(learnerA, new Date("2026-08-18T00:00:00Z"));
+    const secondSchedule = secondOffline.words[0];
+    const sameSense = await ownReviewQueue(learnerA, new Date(), "all", "schedule", secondSchedule.id);
+    const scheduleLibrary = (await ownLibrary(learnerA)).filter((word) => word.lemma === "schedule");
+    const scheduleAfter = await ownStats(learnerA);
+    check("[服务] 两节课保留各自来源，共享相同义项的复习和统计",
+      firstOffline.id !== secondOffline.id && secondSchedule.reps === 1
+      && sameSense.items.length === 1
+      && scheduleLibrary.some((word) => word.id === firstSchedule.id && word.lessonId === firstOffline.id)
+      && scheduleLibrary.some((word) => word.id === secondSchedule.id && word.lessonId === secondOffline.id)
+      && scheduleLibrary.every((word) => word.reviewId === sameSense.items[0].id)
+      && scheduleAfter.words === scheduleBefore.words && scheduleAfter.reviews === scheduleBefore.reviews + 1,
+      JSON.stringify({ reps: secondSchedule.reps, queue: sameSense.items.length, contexts: scheduleLibrary.length,
+        words: scheduleAfter.words - scheduleBefore.words, reviewed: scheduleAfter.reviews - scheduleBefore.reviews }));
 
     const analysisInput = { passageId: `lesson:${lesson.id}:word:${first.id}`, word: first.lemma, sentence: first.example };
     const explain = (cookie: string) => api("/api/preview/explain", cookie, {

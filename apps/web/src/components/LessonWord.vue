@@ -14,7 +14,7 @@
           <span>{{ speech.sourceLabel.value }} · {{ speech.status.value }}</span>
           <button class="rd-pill" type="button" @click="speak(word.example)">读例句</button>
           <span class="rd-segment" role="group" aria-label="语速">
-            <button v-for="item in rates" :key="item" class="rd-pill" type="button" :aria-pressed="rate === item" @click="rate = item">{{ item }}×</button>
+            <button v-for="item in rates" :key="item" class="rd-pill" type="button" :aria-pressed="rate === item" :disabled="rateBusy" @click="setRate(item)">{{ item }}×</button>
           </span>
         </p>
         <p class="rd-sentence" style="font-size: clamp(22px, 2.4vw, 32px)" translate="no">{{ word.example }}</p>
@@ -23,6 +23,7 @@
         <p v-if="speech.detail.value" class="rd-status" role="status">{{ speech.detail.value }}</p>
         <p v-if="message" class="rd-status" role="status">{{ message }}</p>
       </div>
+      <p v-if="rateError" class="rd-note" role="status">{{ rateError }}</p>
       <ReaderNotes
         column-scroll
         :key="word.id"
@@ -50,19 +51,17 @@ import ReaderNotes from "../preview/ReaderNotes.vue"
 import { useExplanation } from "../preview/explain"
 import { api } from "../api"
 import { progressStamp, withReviewRequest } from "../lib/reviewRequest"
-import { useSpeech } from "../composables/useSpeech"
+import { useStudySpeech } from "../composables/useStudySpeech"
 import type { Word } from "../stores/app"
 import "../preview/reader.css"
 
 const props = defineProps<{ word: Word; lessonId: string }>()
 const emit = defineEmits<{ changed: [] }>()
-const rates = [0.8, 1, 1.2]
-const rate = ref(1)
 const clear = ref(false)
 const mark = ref<"" | "known" | "again">(props.word.knownAlready ? "known" : "")
 const markBusy = ref(false)
 const message = ref("")
-const speech = useSpeech()
+const { speech, rate, rates, rateBusy, rateError, setRate } = useStudySpeech()
 const passageId = computed(() => `lesson:${props.lessonId}:word:${props.word.id}`)
 const lemma = computed(() => props.word.lemma)
 const sentence = computed(() => props.word.example)

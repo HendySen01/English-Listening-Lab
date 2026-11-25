@@ -9,10 +9,10 @@
               <span class="badge" v-if="day.primary.active && day.date === days[0].date">今天正在学</span>
               <span class="badge" v-else-if="day.primary.active">这一天选用的版本</span>
               <span v-else class="badge">第 {{ day.primary.version }} 版</span>
-              <span>{{ day.primary.sourceLabel }} · {{ day.primary.difficulty }}</span>
+              <span>{{ day.primary.sourceLabel }}</span>
             </p>
             <h3>{{ day.primary.listeningTitle || day.primary.theme }}</h3>
-            <p class="muted">{{ day.primary.theme }} · {{ day.primary.newWordCount }} 个词 · {{ stepLabel(day.primary.progress?.step) }}</p>
+            <p class="muted">{{ lessonMetadata(day.primary) }} · {{ stepLabel(day.primary.progress?.step) }}</p>
             <div class="progress-track" aria-hidden="true"><span :style="{ width: progressWidth(day.primary) }"></span></div>
           </div>
           <div class="day-actions">
@@ -30,6 +30,7 @@
           </div>
         </div>
         <div v-if="detail && detail.id === openId" class="detail-panel">
+          <p class="muted">{{ lessonMetadata(detail) }}</p>
           <p>{{ detail.listening.text }}</p>
           <p v-for="word in detail.words" :key="word.id"><strong translate="no">{{ word.lemma }}</strong> {{ word.meaningZh }} · {{ word.example }}</p>
           <p class="muted">理解题 {{ detail.questions.length }} 道。旧版本仍保留，这里不能删除。</p>
@@ -43,6 +44,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { lessonMetadata } from "../lib/lessonMetadata";
 import { api } from "../api";
 import type { Lesson } from "../stores/app";
 

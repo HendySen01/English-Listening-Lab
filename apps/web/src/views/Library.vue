@@ -93,7 +93,7 @@ import { Volume2 } from "lucide-vue-next"
 import BlurText from "../preview/BlurText.vue"
 import ExpandFold from "../preview/ExpandFold.vue"
 import { useExplanation } from "../preview/explain"
-import { useSpeech } from "../composables/useSpeech"
+import { useStudySpeech } from "../composables/useStudySpeech"
 import { api } from "../api"
 import { formatDue, formatWhen } from "../lib/due"
 import "../preview/reader.css"
@@ -128,7 +128,7 @@ const errorText = ref("")
 const narrow = ref(window.matchMedia("(max-width: 900px)").matches)
 const now = ref(new Date())
 const clear = ref(false)
-const speech = useSpeech()
+const { speech, rate } = useStudySpeech()
 const filters = [
   { id: "all", label: "全部" },
   { id: "due", label: "待复习" },
@@ -176,7 +176,7 @@ function choose(id: string) {
   persist()
 }
 async function speak(text: string) {
-  await speech.play(text, 1, false)
+  await speech.play(text, rate.value, false)
 }
 function onResize() { narrow.value = window.matchMedia("(max-width: 900px)").matches }
 watch(current, () => persist())

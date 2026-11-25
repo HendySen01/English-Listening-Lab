@@ -4,7 +4,7 @@
       <div>
         <p class="origin">{{ lesson.sourceLabel }}</p>
         <h2>{{ lesson.listening.title }}</h2>
-        <p class="muted">{{ lesson.themeLabel }} · {{ lesson.difficulty }} · {{ lesson.newWordCount }} 个新词 · 约 {{ lesson.estimatedMinutes }} 分钟</p>
+        <p class="muted">{{ lessonMetadata(lesson) }}</p>
       </div>
       <div class="row">
         <button class="choice" @click="details = true">课程详情</button>
@@ -12,11 +12,12 @@
       </div>
       <p v-if="error" class="bad">{{ error }}</p>
     </div>
-    <el-dialog v-model="details" title="课程详情" width="520px">
+    <el-dialog v-model="details" title="课程详情" width="min(520px, 92vw)">
+      <p>{{ lessonMetadata(lesson) }}</p>
       <p>当前学习使用这一节课的单词、例句、听力和进度。换一版不会删除已经做过的复习。</p>
       <div class="stack">
         <button v-for="item in versions" :key="item.id" class="choice" :class="{ active: item.active }" @click="activate(item.id)">
-          {{ item.sourceLabel }}<span v-if="item.active"> · 正在学习</span>
+          {{ item.sourceLabel }}<span v-if="item.difficulty"> · {{ lessonMetadata(item) }}</span><span v-if="item.active"> · 正在学习</span>
         </button>
       </div>
     </el-dialog>
@@ -29,7 +30,7 @@
     <article class="card" v-if="progress.step === 'review'">
       <h3>旧词复习 · 建议 10 分钟</h3>
       <p v-if="!reviews.length" class="muted">今天没有到期的旧词。可以进入新词。</p>
-      <ReviewCard v-else :item="reviews[0]" @done="loadReviews" />
+      <ReviewCard v-else :key="reviews[0].id" :item="reviews[0]" @done="loadReviews" />
     </article>
 
     <article v-else-if="progress.step === 'vocabulary' && word">
@@ -54,7 +55,7 @@
     </article>
 
     <LessonListening v-else-if="progress.step === 'listening'" :lesson="lesson" @save="save" />
-    <ShadowPanel v-else-if="progress.step === 'shadow'" :lesson="lesson" :rate="rate" @save="save" />
+    <ShadowPanel v-else-if="progress.step === 'shadow'" :lesson="lesson" @save="save" />
 
     <article class="card" v-else-if="progress.step === 'recall'">
       <h3>主动回忆 · 建议 5 分钟</h3>
@@ -84,6 +85,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
+import { lessonMetadata } from "../lib/lessonMetadata";
 import { api } from "../api";
 import { progressStamp, withReviewRequest } from "../lib/reviewRequest";
 import { useAppStore, type Lesson, type Progress } from "../stores/app";
@@ -100,7 +102,7 @@ const lesson = ref<Lesson | null>(null);
 useStudyClock("lesson", () => lesson.value?.id || null);
 const details = ref(false);
 const reviews = ref<any[]>([]);
-const versions = ref<Array<{ id: string; version: number; active: boolean; source: string; sourceLabel: string }>>([]);
+const versions = ref<Array<Lesson & { version: number; active: boolean }>>([]);
 const error = ref("");
 const ratingBusy = ref(false);
 const recognizeOnly = ref(false);
@@ -113,7 +115,6 @@ const steps = [
   { id: "recall", label: "回忆" },
 ];
 const progress = computed(() => lesson.value?.progress as Progress);
-const rate = computed(() => store.dashboard?.settings.speechRate || 1);
 const word = computed(() => lesson.value?.words[progress.value.wordIndex] || null);
 const parts = computed(() => lesson.value?.words.filter((item) => item.morphology) || []);
 const recallWord = computed(() => lesson.value?.words.find((item) => item.reps === 0 && !item.knownAlready) || null);

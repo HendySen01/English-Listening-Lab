@@ -5,13 +5,14 @@ import { ownQuota, withAiCharge } from "./learnerQuota.js";
 import { practiceOwnWord, rateOwnWord } from "./learnerReview.js";
 import { AppError } from "./errors.js";
 import { THEME_ZH } from "./content.js";
-import { addStudyDays, readStudyTimeZone, studyDate, studyDayBounds, studyNow } from "./studyTime.js";
+import { readStudyTimeZone, studyDate, studyDayBounds, studyNow, studyWeek } from "./studyTime.js";
 import { previewDays, type RatingName } from "./srs.js";
 import { learnerDb } from "./runtimeClients.js";
 import { studyPreferences, updateStudyPreferences } from "./studyPreferences.js";
 import { createHash, randomUUID } from "node:crypto";
 import { deepseekLessonRequest } from "./deepseekLesson.js";
 import { lockLearnerScope, learnerTransactionOptions } from "./learnerLock.js";
+import { reviewGroups, reviewRows, reviewState, senseKey } from "./reviewSenses.js";
 import { vocabularyIpa } from "./pronunciation.js";
 
 function db() {
@@ -36,6 +37,16 @@ const lessonFields = {
   progress: true,
   userId: true,
 } as const;
+
+function lessonDirection(progress: string, difficulty: string): string | null {
+  const direction = JSON.parse(progress || "{}")?.generation?.direction;
+  return typeof direction === "string" ? direction : difficulty === "CET-4" ? "cet4" : null;
+}
+
+type ReviewGroups = ReturnType<typeof reviewGroups>;
+function reviewContextMap(groups: ReviewGroups) {
+  return new Map(groups.flatMap((group) => group.map((row) => [row.vocabularyId, group[0]] as const)));
+}
 
 function presentProgress(raw: string) {
   const parsed = raw ? JSON.parse(raw) as Record<string, unknown> : {};
@@ -133,7 +144,8 @@ function presentLesson(lesson: {
     active: lesson.active,
     theme: lesson.theme,
     themeLabel: THEME_ZH[lesson.theme] || lesson.theme,
-    difficulty: lesson.difficulty,
+    difficulty: lesson.difficulty === "CET-4" ? "B1" : lesson.difficulty,
+    learningDirection: lessonDirection(lesson.progress, lesson.difficulty),
     newWordCount: lesson.newWordCount,
     estimatedMinutes: lesson.estimatedMinutes,
     source: lesson.source,
@@ -207,8 +219,11 @@ export async function ownLessons(learner: VerifiedLearner) {
     version: lesson.version,
     active: lesson.active,
     theme: THEME_ZH[lesson.theme] || lesson.theme,
-    difficulty: lesson.difficulty,
+    difficulty: lesson.difficulty === "CET-4" ? "B1" : lesson.difficulty,
+    learningDirection: lessonDirection(lesson.progress, lesson.difficulty),
     newWordCount: lesson.newWordCount,
+    estimatedMinutes: lesson.estimatedMinutes,
+    themeLabel: THEME_ZH[lesson.theme] || lesson.theme,
     source: lesson.source,
     sourceLabel: sourceLabel(lesson.source),
     listeningTitle: lesson.listeningTitle,
@@ -219,16 +234,35 @@ export async function ownLessons(learner: VerifiedLearner) {
 export async function ownLesson(learner: VerifiedLearner, id: string) {
   const lesson = await db().dailyLesson.findFirst({ where: { id, userId: learner.learnerId }, include: lessonInclude });
   if (!lesson) throw new AppError(404, "NOT_FOUND", "找不到资源");
-  return presentLesson(lesson);
+  return presentOwnedLesson(lesson, learner.learnerId);
+}
+
+async function presentOwnedLesson(
+  lesson: Parameters<typeof presentLesson>[0], userId: string,
+  context?: ReturnType<typeof reviewContextMap>,
+) {
+  const cards = context ?? reviewContextMap(reviewGroups(await reviewRows(db(), userId)));
+  return presentLesson({
+    ...lesson,
+    words: lesson.words?.map((word) => {
+      const card = cards.get(word.id);
+      return card ? { ...word, progress: card, knownAlready: card.vocabulary.knownAlready } : word;
+    }),
+  });
 }
 
 export async function ownLessonVersions(learner: VerifiedLearner, lessonDate: string) {
   const lessons = await db().dailyLesson.findMany({
     where: { userId: learner.learnerId, lessonDate },
-    select: { id: true, version: true, active: true, source: true, model: true, createdAt: true },
+    select: { id: true, version: true, active: true, source: true, model: true, createdAt: true,
+      theme: true, difficulty: true, newWordCount: true, estimatedMinutes: true, progress: true },
     orderBy: { version: "asc" },
   });
-  return lessons.map((lesson) => ({ ...lesson, sourceLabel: sourceLabel(lesson.source) }));
+  return lessons.map(({ progress, ...lesson }) => ({
+    ...lesson, sourceLabel: sourceLabel(lesson.source), themeLabel: THEME_ZH[lesson.theme] || lesson.theme,
+    difficulty: lesson.difficulty === "CET-4" ? "B1" : lesson.difficulty,
+    learningDirection: lessonDirection(progress, lesson.difficulty),
+  }));
 }
 
 export async function activateOwnLesson(learner: VerifiedLearner, id: string) {
@@ -244,88 +278,79 @@ export async function activateOwnLesson(learner: VerifiedLearner, id: string) {
 
 export async function saveOwnLessonProgress(learner: VerifiedLearner, id: string, progress: unknown) {
   if (!progress || typeof progress !== "object") throw new AppError(400, "BAD_PROGRESS", "进度格式不正确");
+  const where = { id, userId: learner.learnerId };
+  const existing = await db().dailyLesson.findFirst({ where, select: { progress: true } });
+  if (!existing) throw new AppError(404, "NOT_FOUND", "找不到资源");
+  const generation = JSON.parse(existing.progress || "{}")?.generation;
   const updated = await db().dailyLesson.updateMany({
-    where: { id, userId: learner.learnerId },
-    data: { progress: JSON.stringify(progress) },
+    where,
+    data: { progress: JSON.stringify({ ...progress, generation }) },
   });
   if (updated.count !== 1) throw new AppError(404, "NOT_FOUND", "找不到资源");
   return ownLesson(learner, id);
 }
 
+function newReviewCard(now: Date) {
+  return {
+    due: now, stability: 0.5, difficulty: 5, elapsedDays: 0, scheduledDays: 0,
+    learningSteps: 0, reps: 0, lapses: 0, state: 0, lastReview: null,
+    correctCount: 0, incorrectCount: 0, familiarity: "new", recallAbility: "again",
+  };
+}
+
+function reusableReviews(groups: ReviewGroups) {
+  const cards = new Map<string, ReviewGroups[number][number]>();
+  const ambiguous = new Set<string>();
+  for (const [card] of groups) {
+    const key = senseKey(card.vocabulary);
+    if (cards.has(key)) {
+      cards.delete(key);
+      ambiguous.add(key);
+    } else if (!ambiguous.has(key)) cards.set(key, card);
+  }
+  return cards;
+}
+
 async function createOfflineLesson(learner: VerifiedLearner, lessonDate: string, source: string) {
-  const latest = await db().dailyLesson.findFirst({
-    where: { userId: learner.learnerId, lessonDate },
-    orderBy: { version: "desc" },
-  });
-  const id = `lesson_${learner.learnerId}_${lessonDate}_${source}_${(latest?.version ?? 0) + 1}`;
-  const wordId = `vocab_${id}_schedule`;
+  const userId = learner.learnerId;
   const createdAt = new Date();
-  await db().$transaction([
-    db().dailyLesson.updateMany({ where: { userId: learner.learnerId, lessonDate }, data: { active: false } }),
-    db().dailyLesson.create({
+  const id = await db().$transaction(async (tx) => {
+    await lockLearnerScope(tx, `lesson:${userId}:${lessonDate}`);
+    await lockLearnerScope(tx, `fsrs:${userId}`);
+    const where = { userId, lessonDate };
+    const latest = await tx.dailyLesson.findFirst({ where, orderBy: { version: "desc" } });
+    if (source === "offline" && latest?.active && await tx.vocabulary.count({ where: { userId, lessonId: latest.id } })) return latest.id;
+    const version = (latest?.version ?? 0) + 1;
+    const id = `lesson_${userId}_${lessonDate}_${source}_${version}`;
+    const wordId = `vocab_${id}_schedule`;
+    const word = { lemma: "schedule", pos: "verb", meaningZh: "安排", definitionEn: "to plan a time for something" };
+    const prior = reusableReviews(reviewGroups(await reviewRows(tx, userId))).get(senseKey(word));
+    await tx.dailyLesson.updateMany({ where, data: { active: false } });
+    await tx.dailyLesson.create({
       data: {
-        id,
-        lessonDate,
-        version: (latest?.version ?? 0) + 1,
-        active: true,
-        theme: "Daily Life",
-        difficulty: "A2",
-        newWordCount: 1,
-        estimatedMinutes: 5,
-        source,
-        model: source === "ai" ? "mock" : null,
-        poolNote: "",
-        progress: "{}",
-        listeningTitle: source,
+        id, userId, lessonDate, version, active: true, theme: "Daily Life", difficulty: "A2",
+        newWordCount: 1, estimatedMinutes: 5, source, model: source === "ai" ? "mock" : null,
+        poolNote: "", progress: "{}", listeningTitle: source,
         listeningText: "I need to schedule a short appointment today.",
-        listeningChunks: "[]",
-        listeningGloss: JSON.stringify({ schedule: "安排" }),
-        createdAt,
-        userId: learner.learnerId,
+        listeningChunks: "[]", listeningGloss: JSON.stringify({ schedule: "安排" }), createdAt,
       },
-    }),
-    db().vocabulary.create({
+    });
+    await tx.vocabulary.create({
       data: {
-        id: wordId,
-        lemma: "schedule",
-        pos: "verb",
-        ipaNote: "",
-        meaningZh: "安排",
-        definitionEn: "to plan a time for something",
-        collocation: "schedule a meeting",
-        example: "I need to schedule a short appointment today.",
-        exampleZh: "我今天需要安排一个短会面。",
-        difficulty: "A2",
-        theme: "Daily Life",
-        knownAlready: false,
-        exampleFlagged: false,
-        createdAt,
-        lessonId: id,
-        userId: learner.learnerId,
+        ...word, id: wordId, userId, lessonId: id, ipaNote: "", collocation: "schedule a meeting",
+        example: "I need to schedule a short appointment today.", exampleZh: "我今天需要安排一个短会面。",
+        difficulty: "A2", theme: "Daily Life", knownAlready: prior?.vocabulary.knownAlready ?? false,
+        exampleFlagged: false, createdAt,
       },
-    }),
-    db().wordProgress.create({
+    });
+    await tx.wordProgress.create({
       data: {
-        id: `progress_${wordId}`,
-        vocabularyId: wordId,
-        due: createdAt,
-        stability: 0.5,
-        difficulty: 5,
-        elapsedDays: 0,
-        scheduledDays: 0,
-        learningSteps: 0,
-        reps: 0,
-        lapses: 0,
-        state: 0,
-        firstLearnedAt: createdAt,
-        correctCount: 0,
-        incorrectCount: 0,
-        familiarity: "new",
-        recallAbility: "again",
-        userId: learner.learnerId,
+        ...(prior ? reviewState(prior) : newReviewCard(createdAt)),
+        id: `progress_${wordId}`, vocabularyId: wordId, userId, firstLearnedAt: createdAt,
       },
-    }),
-  ]);
+    });
+    return id;
+  }, learnerTransactionOptions());
   return ownLesson(learner, id);
 }
 
@@ -337,7 +362,7 @@ export async function ensureOwnToday(learner: VerifiedLearner, now = studyNow())
   });
   if (existing) {
     if (existing.words.length === 0) return createOfflineLesson(learner, lessonDate, "offline");
-    return presentLesson(existing);
+    return presentOwnedLesson(existing, learner.learnerId);
   }
   return createOfflineLesson(learner, lessonDate, "offline");
 }
@@ -350,7 +375,7 @@ export async function createOwnAiVersion(learner: VerifiedLearner, clientRequest
       ownSettings(learner),
       db().vocabulary.findMany({ where: { userId }, select: { lemma: true }, orderBy: { createdAt: "desc" }, take: 32 }),
       db().dailyLesson.count({ where: { userId, active: true } }),
-      db().wordProgress.count({ where: { userId, due: { lte: now }, vocabulary: { knownAlready: false } } }),
+      reviewRows(db(), userId).then((rows) => reviewGroups(rows).filter(([row]) => row.due <= now && !row.vocabulary.knownAlready).length),
     ]);
     const request = deepseekLessonRequest(settings, [...new Set(recent.map(({ lemma }) => lemma.slice(0, 60)))], priorLessons, dueCount);
     const requestId = clientRequestId ?? crypto.randomUUID();
@@ -358,11 +383,12 @@ export async function createOwnAiVersion(learner: VerifiedLearner, clientRequest
     const result = await withAiCharge({
       learner, requestId, kind: "lesson", now, model: request.model,
       inputTokens: request.inputTokens, outputTokens: request.outputTokens,
-    }, async () => ({ draft: await request.generate(), lessonDate: studyDate(now), model: request.model }));
-    const { draft, lessonDate, model } = result.value;
+    }, async () => ({ draft: await request.generate(), lessonDate: studyDate(now), model: request.model, direction: settings.learningDirection }));
+    const { draft, lessonDate, model, direction } = result.value;
     if (!draft) throw new AppError(409, "AI_REQUEST_CONFLICT", "请重新发起课程生成。");
     await db().$transaction(async (tx) => {
       await lockLearnerScope(tx, `lesson:${userId}:${lessonDate}`);
+      await lockLearnerScope(tx, `fsrs:${userId}`);
       if (await tx.dailyLesson.findFirst({ where: { id, userId }, select: { id: true } })) return;
       const where = { userId, lessonDate };
       const latest = await tx.dailyLesson.findFirst({ where, orderBy: { version: "desc" }, select: { version: true } });
@@ -372,24 +398,27 @@ export async function createOwnAiVersion(learner: VerifiedLearner, clientRequest
           id, userId, lessonDate, version: (latest?.version ?? 0) + 1, active: true, createdAt: now,
           theme: draft.theme, difficulty: draft.difficulty, source: "ai", model,
           newWordCount: draft.words.length, estimatedMinutes: draft.estimatedMinutes,
-          poolNote: draft.poolNote, progress: "{}",
+          poolNote: draft.poolNote, progress: JSON.stringify({ generation: { direction } }),
           listeningTitle: draft.listeningTitle, listeningText: draft.listeningText,
           listeningChunks: JSON.stringify(draft.listeningChunks), listeningGloss: JSON.stringify(draft.listeningGloss),
         },
       });
+      const reusable = reusableReviews(reviewGroups(await reviewRows(tx, userId)));
       const words = draft.words.map((word, index) => ({
         id: randomUUID(), lessonId: id, userId,
         lemma: word.lemma, pos: word.pos, ipa: word.ipa, ipaNote: word.ipaNote, meaningZh: word.meaningZh,
         definitionEn: word.definitionEn, collocation: word.collocation, example: word.example, exampleZh: word.exampleZh,
         morphology: word.morphology ? JSON.stringify(word.morphology) : null, difficulty: word.difficulty,
-        theme: word.theme, knownAlready: false, exampleFlagged: false, createdAt: new Date(now.getTime() + index),
+        theme: word.theme, knownAlready: reusable.get(senseKey(word))?.vocabulary.knownAlready ?? false, exampleFlagged: false, createdAt: new Date(now.getTime() + index),
       }));
       await tx.vocabulary.createMany({ data: words });
-      await tx.wordProgress.createMany({ data: words.map(({ id: vocabularyId }) => ({
-        id: randomUUID(), vocabularyId, userId, due: now, stability: 0.5, difficulty: 5, firstLearnedAt: now,
-        elapsedDays: 0, scheduledDays: 0, learningSteps: 0, reps: 0, lapses: 0, state: 0,
-        correctCount: 0, incorrectCount: 0, familiarity: "new", recallAbility: "again",
-      })) });
+      await tx.wordProgress.createMany({ data: words.map((word) => {
+        const prior = reusable.get(senseKey(word));
+        return {
+          ...(prior ? reviewState(prior) : newReviewCard(now)),
+          id: randomUUID(), vocabularyId: word.id, userId, firstLearnedAt: now,
+        };
+      }) });
       await tx.quizQuestion.createMany({ data: draft.questions.map((question, sortOrder) => ({
         ...question, id: randomUUID(), lessonId: id, userId, sortOrder,
         options: JSON.stringify(question.options), whyWrong: JSON.stringify(question.whyWrong),
@@ -410,33 +439,39 @@ export async function ownLibrary(learner: VerifiedLearner) {
     include: { progress: true, lesson: { select: { id: true, lessonDate: true, listeningTitle: true, version: true } } },
     orderBy: { createdAt: "desc" },
   });
-  return words.map((word) => ({
-    id: word.id,
-    lemma: word.lemma,
-    pos: word.pos,
-    ipa: vocabularyIpa(word.lemma, word.ipa),
-    ipaNote: word.ipaNote,
-    meaningZh: word.meaningZh,
-    definitionEn: word.definitionEn,
-    collocation: word.collocation,
-    example: word.example,
-    exampleZh: word.exampleZh,
-    morphology: word.morphology ? JSON.parse(word.morphology) : null,
-    knownAlready: word.knownAlready,
-    familiarity: word.progress?.familiarity ?? "new",
-    reps: word.progress?.reps ?? 0,
-    lapses: word.progress?.lapses ?? 0,
-    state: word.progress?.state ?? 0,
-    due: word.progress?.due ?? null,
-    lastReview: word.progress?.lastReview ?? null,
-    correctCount: word.progress?.correctCount ?? 0,
-    incorrectCount: word.progress?.incorrectCount ?? 0,
-    stability: word.progress?.stability ?? null,
-    lessonId: word.lesson?.id ?? null,
-    lessonDate: word.lesson?.lessonDate ?? null,
-    lessonTitle: word.lesson?.listeningTitle ?? "",
-    userId: word.userId,
-  }));
+  const cards = reviewContextMap(reviewGroups(await reviewRows(db(), learner.learnerId)));
+  return words.map((word) => {
+    const card = cards.get(word.id);
+    const progress = card ?? word.progress;
+    return {
+      id: word.id,
+      lemma: word.lemma,
+      pos: word.pos,
+      ipa: vocabularyIpa(word.lemma, word.ipa),
+      ipaNote: word.ipaNote,
+      meaningZh: word.meaningZh,
+      definitionEn: word.definitionEn,
+      collocation: word.collocation,
+      example: word.example,
+      exampleZh: word.exampleZh,
+      morphology: word.morphology ? JSON.parse(word.morphology) : null,
+      knownAlready: card?.vocabulary.knownAlready ?? word.knownAlready,
+      familiarity: progress?.familiarity ?? "new",
+      reps: progress?.reps ?? 0,
+      lapses: progress?.lapses ?? 0,
+      state: progress?.state ?? 0,
+      due: progress?.due ?? null,
+      lastReview: progress?.lastReview ?? null,
+      correctCount: progress?.correctCount ?? 0,
+      incorrectCount: progress?.incorrectCount ?? 0,
+      stability: progress?.stability ?? null,
+      lessonId: word.lesson?.id ?? null,
+      lessonDate: word.lesson?.lessonDate ?? null,
+      lessonTitle: word.lesson?.listeningTitle ?? "",
+      userId: word.userId,
+      reviewId: card?.vocabularyId ?? word.id,
+    };
+  });
 }
 
 export async function answerOwnQuestion(learner: VerifiedLearner, questionId: string, selected: number) {
@@ -485,10 +520,12 @@ export async function addOwnSession(learner: VerifiedLearner, lessonId: string |
 
 export async function ownStats(learner: VerifiedLearner) {
   const userId = learner.learnerId;
-  const words = await db().vocabulary.count({ where: { userId } });
-  const known = await db().vocabulary.count({ where: { userId, knownAlready: true } });
+  const groups = reviewGroups(await reviewRows(db(), userId));
+  const untracked = await db().vocabulary.findMany({ where: { userId, progress: null }, select: { knownAlready: true } });
+  const words = groups.length + untracked.length;
+  const known = groups.filter(([row]) => row.vocabulary.knownAlready).length + untracked.filter((word) => word.knownAlready).length;
   const attempts = await db().quizAttempt.findMany({ where: { userId } });
-  const reviews = await db().wordProgress.count({ where: { userId, reps: { gt: 0 } } });
+  const reviews = groups.filter(([row]) => row.reps > 0).length;
   const minutes = await db().studySession.aggregate({ where: { userId }, _sum: { minutes: true } });
   const usage = await db().aIUsageRecord.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 20 });
   const charges = await readOwnCharges(userId);
@@ -585,16 +622,17 @@ export async function updateOwnSettings(learner: VerifiedLearner, input: Record<
   return db().userSettings.update({
     where: { userId: learner.learnerId },
     data: {
-      dailyNewWords: clamp(input.dailyNewWords, 3, 20, current.dailyNewWords),
-      dailyMinutes: clamp(input.dailyMinutes, 20, 180, current.dailyMinutes),
-      ...updateStudyPreferences(current, input),
-      theme: themes.includes(String(input.theme)) ? String(input.theme) : current.theme,
-      customTheme: String(input.customTheme ?? current.customTheme).slice(0, 40),
-      autoGenerate: typeof input.autoGenerate === "boolean" ? input.autoGenerate : current.autoGenerate,
-      wordPartsEnabled: typeof input.wordPartsEnabled === "boolean" ? input.wordPartsEnabled : current.wordPartsEnabled,
-      recommendationsEnabled: typeof input.recommendationsEnabled === "boolean" ? input.recommendationsEnabled : current.recommendationsEnabled,
-      colorMode: modes.includes(String(input.colorMode)) ? String(input.colorMode) : current.colorMode,
-      speechRate: rates.includes(Number(input.speechRate)) ? Number(input.speechRate) : current.speechRate,
+      dailyNewWords: input.dailyNewWords === undefined ? undefined : clamp(input.dailyNewWords, 3, 20, current.dailyNewWords),
+      dailyMinutes: input.dailyMinutes === undefined ? undefined : clamp(input.dailyMinutes, 20, 180, current.dailyMinutes),
+      ...(["difficulty", "listeningLevel", "learningDirection", "customLearningGoal"].some((key) => key in input)
+        ? updateStudyPreferences(current, input) : {}),
+      theme: input.theme === undefined ? undefined : themes.includes(String(input.theme)) ? String(input.theme) : current.theme,
+      customTheme: input.customTheme === undefined ? undefined : String(input.customTheme ?? current.customTheme).slice(0, 40),
+      autoGenerate: input.autoGenerate === undefined ? undefined : typeof input.autoGenerate === "boolean" ? input.autoGenerate : current.autoGenerate,
+      wordPartsEnabled: input.wordPartsEnabled === undefined ? undefined : typeof input.wordPartsEnabled === "boolean" ? input.wordPartsEnabled : current.wordPartsEnabled,
+      recommendationsEnabled: input.recommendationsEnabled === undefined ? undefined : typeof input.recommendationsEnabled === "boolean" ? input.recommendationsEnabled : current.recommendationsEnabled,
+      colorMode: input.colorMode === undefined ? undefined : modes.includes(String(input.colorMode)) ? String(input.colorMode) : current.colorMode,
+      speechRate: input.speechRate === undefined ? undefined : rates.includes(Number(input.speechRate)) ? Number(input.speechRate) : current.speechRate,
       updatedAt: new Date(),
     },
   });
@@ -613,10 +651,10 @@ export async function ownDashboard(learner: VerifiedLearner, now = studyNow()) {
     where: { userId: learner.learnerId, lessonDate: today, active: true },
     include: lessonInclude,
   });
-  const lesson = lessonRow ? presentLesson(lessonRow) : null;
-  const dueCount = await db().wordProgress.count({
-    where: { userId: learner.learnerId, due: { lte: now }, vocabulary: { knownAlready: false } },
-  });
+  const groups = reviewGroups(await reviewRows(db(), learner.learnerId));
+  const lesson = lessonRow ? await presentOwnedLesson(lessonRow, learner.learnerId, reviewContextMap(groups)) : null;
+  const rows = groups.map(([row]) => row);
+  const dueCount = rows.filter((row) => row.due <= now && !row.vocabulary.knownAlready).length;
   const historyRows = await db().dailyLesson.findMany({
     where: { userId: learner.learnerId },
     select: { id: true, lessonDate: true, version: true, active: true },
@@ -626,33 +664,23 @@ export async function ownDashboard(learner: VerifiedLearner, now = studyNow()) {
     date,
     lessons: historyRows.filter((item) => item.lessonDate === date).map((item) => ({ id: item.id, version: item.version, active: item.active })),
   }));
-  const week = [];
-  for (let offset = 6; offset >= 0; offset -= 1) {
-    const date = addStudyDays(today, -offset);
-    const bounds = studyDayBounds(date);
-    const sessions = await db().studySession.findMany({
-      where: { userId: learner.learnerId, createdAt: { gte: bounds.start, lt: bounds.end } },
-    });
-    const lessonCount = historyRows.filter((item) => item.lessonDate === date).length;
-    week.push({ date, minutes: sessions.reduce((sum, item) => sum + item.minutes, 0), lessonCount, hasLesson: lessonCount > 0 });
-  }
+  const chart = studyWeek(now);
+  const sessions = await db().studySession.findMany({
+    where: { userId: learner.learnerId, createdAt: { gte: chart.start, lt: chart.end } },
+    select: { createdAt: true, minutes: true },
+  });
   const todayBounds = studyDayBounds(today);
-  const reviewedToday = await db().wordProgress.count({
-    where: { userId: learner.learnerId, lastReview: { gte: todayBounds.start, lt: todayBounds.end } },
-  });
-  const upcomingRows = await db().wordProgress.findMany({
-    where: { userId: learner.learnerId, vocabulary: { knownAlready: false } },
-    include: { vocabulary: true },
-    orderBy: { due: "asc" },
-    take: 5,
-  });
+  const reviewedToday = rows.filter((row) => row.lastReview && row.lastReview >= todayBounds.start && row.lastReview < todayBounds.end).length;
+  const upcomingRows = rows.filter((row) => !row.vocabulary.knownAlready)
+    .sort((a, b) => a.due.getTime() - b.due.getTime()).slice(0, 5);
   return {
     date: today,
     dateLabel: today,
     studyTimeZone: readStudyTimeZone(),
     dueCount,
     lesson,
-    week,
+    week: chart.summarize(sessions),
+    weekToday: chart.today,
     history,
     settings,
     themeLabel: settings.theme === "Custom" ? settings.customTheme || "自定义" : THEME_ZH[settings.theme] || settings.theme,
@@ -673,12 +701,11 @@ export async function ownDashboard(learner: VerifiedLearner, now = studyNow()) {
   };
 }
 
-export async function ownReviewQueue(learner: VerifiedLearner, now = new Date(), filter = "due", query = "") {
-  const rows = await db().wordProgress.findMany({
-    where: { userId: learner.learnerId },
-    include: { vocabulary: true },
-    orderBy: { due: "asc" },
-  });
+export async function ownReviewQueue(learner: VerifiedLearner, now = new Date(), filter = "due", query = "", focus = "") {
+  const groups = reviewGroups(await reviewRows(db(), learner.learnerId))
+    .sort(([a], [b]) => a.due.getTime() - b.due.getTime());
+  const rows = groups.map(([row]) => row);
+  const related = new Map(groups.map((group) => [group[0].vocabularyId, group]));
   const soon = now.getTime() + 48 * 60 * 60 * 1000;
   const needle = query.trim().toLowerCase();
   const matched = rows.filter((row) => {
@@ -692,27 +719,32 @@ export async function ownReviewQueue(learner: VerifiedLearner, now = new Date(),
   });
   return {
     dueCount: rows.filter((row) => row.due <= now && !row.vocabulary.knownAlready).length,
-    items: matched.map((row) => ({
-      id: row.vocabularyId,
-      lemma: row.vocabulary.lemma,
-      pos: row.vocabulary.pos,
-      ipa: vocabularyIpa(row.vocabulary.lemma, row.vocabulary.ipa),
-      meaningZh: row.vocabulary.meaningZh,
-      example: row.vocabulary.example,
-      exampleZh: row.vocabulary.exampleZh,
-      familiarity: row.familiarity,
-      reps: row.reps,
-      due: row.due,
-      lastReview: row.lastReview,
-      lapses: row.lapses,
-      state: row.state,
-      correctCount: row.correctCount,
-      incorrectCount: row.incorrectCount,
-      knownAlready: row.vocabulary.knownAlready,
-      stability: row.stability,
-      userId: row.userId,
-      intervals: previewDays(row, now),
-    })),
+    items: matched.map((row) => {
+      const contexts = related.get(row.vocabularyId)!;
+      const word = contexts.find((item) => item.vocabularyId === focus)?.vocabulary ?? row.vocabulary;
+      return {
+        id: row.vocabularyId,
+        relatedIds: contexts.slice(1).map((item) => item.vocabularyId),
+        lemma: word.lemma,
+        pos: word.pos,
+        ipa: vocabularyIpa(word.lemma, word.ipa),
+        meaningZh: word.meaningZh,
+        example: word.example,
+        exampleZh: word.exampleZh,
+        familiarity: row.familiarity,
+        reps: row.reps,
+        due: row.due,
+        lastReview: row.lastReview,
+        lapses: row.lapses,
+        state: row.state,
+        correctCount: row.correctCount,
+        incorrectCount: row.incorrectCount,
+        knownAlready: row.vocabulary.knownAlready,
+        stability: row.stability,
+        userId: row.userId,
+        intervals: previewDays(row, now),
+      };
+    }),
   };
 }
 
