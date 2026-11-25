@@ -110,8 +110,7 @@ async function speak(text: string) {
 }
 function setRate(next: number) {
   rate.value = next
-  if (speech.changeRate(next)) return
-  if (speech.status.value === "播放中") void speak(props.lesson.listening.text)
+  speech.changeRate(next)
 }
 function toggle() {
   if (speech.status.value === "播放中") speech.pause()
@@ -119,7 +118,7 @@ function toggle() {
   else void speak(props.lesson.listening.text)
 }
 function replay() {
-  void speak(props.lesson.listening.text)
+  void speech.replay(props.lesson.listening.text, rate.value)
 }
 function playSentence(index: number) {
   void speak(passages.value[index].sentence)

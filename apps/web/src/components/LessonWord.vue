@@ -7,7 +7,7 @@
           <button class="rd-icon" type="button" :aria-label="`朗读 ${word.lemma}`" @click="speak(word.lemma)"><Volume2 aria-hidden="true" :size="18" /></button>
         </div>
         <p class="rd-meta" translate="no">
-          <span>{{ word.ipa || "没有单独标音标" }}</span>
+          <span v-if="word.ipa">{{ word.ipa }}</span>
           <span>·</span>
           <span>{{ word.pos }}</span>
           <span>·</span>

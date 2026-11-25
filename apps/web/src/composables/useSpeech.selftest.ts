@@ -6,6 +6,9 @@ let spoken = 0;
 let blockedOnce = true;
 let rate = 0;
 let providerError = false;
+let browserRate = 0;
+let browserText = "";
+let synthesisPaused = false;
 class FakeAudio {
   paused = true;
   onplay?: () => void;
@@ -36,8 +39,13 @@ try {
     } },
     window: { configurable: true, value: { speechSynthesis: {
       cancel() {},
+      speaking: true,
+      pause() { synthesisPaused = true; },
+      resume() { synthesisPaused = false; },
       getVoices: () => [{ lang: "en-US" }],
-      speak: (utterance: { onstart: () => void }) => { spoken += 1; utterance.onstart(); },
+      speak: (utterance: { text: string; rate: number; onstart: () => void }) => {
+        spoken += 1; browserRate = utterance.rate; browserText = utterance.text; synthesisPaused = false; utterance.onstart();
+      },
     } } },
     Audio: { configurable: true, value: FakeAudio },
     SpeechSynthesisUtterance: { configurable: true, value: class {
@@ -52,12 +60,32 @@ try {
   await player.play("Hello", 1.2, true);
   assert.equal(requests, 1);
   assert.equal(rate, 1.2);
+  player.changeRate(0.8);
+  assert.equal(rate, 0.8);
+  player.pause();
+  assert.equal(player.status.value, "已暂停");
+  player.changeRate(1);
+  assert.equal(rate, 1);
+  player.resume();
+  await player.replay("Hello", 1.2);
+  assert.equal(rate, 1.2);
+  assert.equal(requests, 1);
   assert.equal(useSpeech().hasOnlineClip("Hello"), false);
   providerError = true;
   await player.play("New text", 1, true);
   assert.match(player.detail.value, /浏览器语音/);
   await player.play("New text", 1);
   assert.equal(spoken, 1);
+  assert.equal(browserRate, 1);
+  player.changeRate(0.8);
+  assert.equal(browserRate, 0.8);
+  assert.equal(browserText, "New text");
+  player.pause();
+  assert.equal(synthesisPaused, true);
+  player.changeRate(1.2);
+  player.resume();
+  assert.equal(synthesisPaused, false);
+  assert.equal(browserRate, 1.2);
   assert.equal(requests, 2);
   player.stop();
 } finally {

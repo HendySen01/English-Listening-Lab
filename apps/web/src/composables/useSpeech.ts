@@ -11,9 +11,16 @@ let pending: AbortController | null = null;
 export function useSpeech() {
   // Keep only the most recent clip for this player instance. Never persist private audio.
   let clip: { text: string; url: string; label: string } | null = null;
+  let last: { text: string; rate: number; online: boolean } | null = null;
+  let offset = 0;
+  let restartOnResume = false;
 
-  async function play(text: string, rate: number, useOnline = false) {
+  async function play(text: string, rate: number, useOnline = false, start = 0) {
     stop();
+    const request = { text, rate, online: useOnline };
+    last = request;
+    offset = start;
+    restartOnResume = false;
     const current = playback;
     status.value = "准备";
     detail.value = "";
@@ -30,7 +37,7 @@ export function useSpeech() {
         }
         audio = new Audio(clip.url);
         sourceLabel.value = clip.label;
-        audio.playbackRate = rate;
+        audio.playbackRate = request.rate;
         audio.onplay = () => { if (current === playback) status.value = "播放中"; };
         audio.onended = () => { if (current === playback) status.value = "空闲"; };
         audio.onerror = () => {
@@ -61,9 +68,12 @@ export function useSpeech() {
       return;
     }
     const synth = window.speechSynthesis;
-    const utterance = new SpeechSynthesisUtterance(text);
+    const utterance = new SpeechSynthesisUtterance(text.slice(start));
     utterance.lang = "en-US";
     utterance.rate = rate;
+    utterance.onboundary = (event) => {
+      if (current === playback && event.charIndex >= 0 && start + event.charIndex < text.length) offset = start + event.charIndex;
+    };
     const voices = synth.getVoices();
     const voice = voices.find((item) => /^en(-|_)?/i.test(item.lang));
     if (!voice) detail.value = "没有找到英语语音。浏览器可能仍会尝试朗读，但音色和语速不一定符合预期。";
@@ -108,6 +118,10 @@ export function useSpeech() {
       });
       return;
     }
+    if (last && !last.online && restartOnResume) {
+      void play(last.text, last.rate, false, offset);
+      return;
+    }
     window.speechSynthesis?.resume();
     status.value = "播放中";
   }
@@ -123,14 +137,21 @@ export function useSpeech() {
   }
 
   function changeRate(rate: number) {
-    if (!audio) return false;
-    audio.playbackRate = rate;
-    return true;
+    if (!last || last.rate === rate) return;
+    last.rate = rate;
+    if (audio) audio.playbackRate = rate;
+    else if (!last.online && status.value === "播放中") void play(last.text, rate, false, offset);
+    else if (!last.online && status.value === "已暂停") restartOnResume = true;
   }
 
   function hasOnlineClip(text: string) {
     return clip?.text === text;
   }
 
-  return { status, detail, sourceLabel, play, pause, resume, stop, changeRate, hasOnlineClip };
+  function replay(defaultText: string, rate: number) {
+    const text = last?.text || defaultText;
+    return play(text, rate, Boolean(last?.online && hasOnlineClip(text)));
+  }
+
+  return { status, detail, sourceLabel, play, pause, resume, stop, changeRate, hasOnlineClip, replay };
 }

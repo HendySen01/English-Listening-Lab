@@ -67,7 +67,7 @@ function clampInt(value: unknown, min: number, max: number, fallback: number) {
 
 export async function dueCount(now = new Date()) {
   const rows = await canonicalProgress();
-  return rows.filter((row) => row.reps > 0 && row.due <= now && !row.vocabulary.knownAlready).length;
+  return rows.filter((row) => row.due <= now && !row.vocabulary.knownAlready).length;
 }
 
 export async function findLesson(where: { id?: string; lessonDate?: string }) {
@@ -925,11 +925,11 @@ export async function reviewQueue(now = new Date(), filter = "due", query = "") 
     .filter((row) => {
       const word = row.vocabulary;
       if (needle && !word.lemma.toLowerCase().includes(needle) && !word.meaningZh.includes(query.trim())) return false;
-      if (filter === "due") return row.reps > 0 && row.due <= now && !word.knownAlready;
-      if (filter === "soon") return row.due.getTime() > now.getTime() && row.due.getTime() <= soon;
+      if (filter === "due") return row.due <= now && !word.knownAlready;
+      if (filter === "soon") return !word.knownAlready && row.due.getTime() > now.getTime() && row.due.getTime() <= soon;
       if (filter === "weak") return row.familiarity === "forgot" || row.familiarity === "hard" || row.lapses > 0;
       if (filter === "known") return word.knownAlready || row.familiarity === "easy";
-      return row.reps > 0 || word.knownAlready;
+      return true;
     })
     .map((row) => ({
       id: row.vocabulary.id,

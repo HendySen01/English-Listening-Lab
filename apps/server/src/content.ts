@@ -1,3 +1,4 @@
+import { vocabularyIpa } from "./pronunciation.js";
 import { z } from "zod";
 import {
   BANK,
@@ -502,7 +503,7 @@ export function draftFromAi(raw: unknown, input: {
     return {
       lemma: word.lemma.trim(),
       pos: word.pos,
-      ipa: null,
+      ipa: vocabularyIpa(word.lemma),
       ipaNote: "",
       stress: word.stress ?? null,
       meaningZh: word.meaningZh,

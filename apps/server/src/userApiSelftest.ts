@@ -353,6 +353,7 @@ try {
   check("[HTTP] 在线语音不能匿名调用，隔离运行时拒绝联网", anonymousTts.status === 401 && onlineTts.status === 403);
   const fetchHttp = globalThis.fetch;
   let lessonCalls = 0;
+  let explanationCalls = 0;
   let thinkingMode: unknown;
   let speechCalls = 0;
   let deepseekSpeechCalls = 0;
@@ -370,8 +371,18 @@ try {
   globalThis.fetch = async (input, init) => {
     const url = String(input);
     if (url === "https://ai-unit.invalid/chat/completions") {
-      lessonCalls += 1;
       const request = JSON.parse(String(init?.body));
+      if (String(request.messages[0].content).includes("词源与语境解析专家")) {
+        explanationCalls += 1;
+        const content = JSON.stringify({
+          text: "clinic", type: "word", pronunciation: "", partOfSpeech: "名词", definition: "诊所", usage: "表示就诊地点。",
+          etymology: { origin: "来源待证实", originalImage: "就诊地点" },
+          semanticRoutes: ["地点", "机构", "服务"].map(label => ({ label, steps: "延伸", modernMeaning: label })),
+          comparisons: [], examples: [{ text: "Visit the clinic.", translation: "去诊所。" }, { text: "The clinic is open.", translation: "诊所开门了。" }],
+        });
+        return Response.json({ choices: [{ finish_reason: "stop", message: { content } }] });
+      }
+      lessonCalls += 1;
       thinkingMode = request.thinking?.type;
       modelSettings = JSON.parse(request.messages[1].content);
       const content = JSON.stringify({
@@ -423,7 +434,7 @@ try {
       body: JSON.stringify({ confirmCost: true, clientRequestId: requestId }),
     });
     const generated = await generate("course-real-path-1");
-    const lesson = await generated.json() as { id: string; words?: unknown[]; questions?: unknown[] };
+    const lesson = await generated.json() as { id: string; words: Array<Record<string, unknown> & { id: string; lemma: string; example: string }>; questions?: unknown[] };
     const replay = await generate("course-real-path-1");
     const replayed = await replay.json() as { id: string };
     const rejected = await generate("course-real-path-2");
@@ -444,6 +455,43 @@ try {
     const untouched = await (await api("/api/settings", betaCookie)).json() as { learningDirection?: string };
     check("[HTTP] 学习方向独立于 CEFR，保存后可刷新且隔离",
       reloaded.learningDirection === "ielts" && reloaded.difficulty === "A2" && untouched.learningDirection === "general");
+    const first = lesson.words.find(word => word.lemma === "clinic")!;
+    const progressPatch = await api(`/api/lessons/${lesson.id}/progress`, alphaCookie, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ progress: { step: "words", completed: ["words"] } }),
+    });
+    const library = await (await api("/api/library", alphaCookie)).json() as typeof lesson.words;
+    const due = await (await api("/api/review?filter=due", alphaCookie)).json() as { items: typeof lesson.words };
+    const all = await (await api("/api/review?filter=all", alphaCookie)).json() as { items: typeof lesson.words };
+    const target = due.items.find(word => word.id === first.id)!;
+    check("[HTTP] 课程词汇进入词库、到期和全部队列，首次复习前 reps 为 0",
+      progressPatch.status === 200 && !!first.ipa && target?.reps === 0 && library.some(word => word.id === target.id && word.due === target.due)
+      && all.items.some(word => word.id === target.id));
+    const statsBefore = await (await api("/api/stats", alphaCookie)).json() as { reviews: number };
+    const practice = await api(`/api/review/${target.id}/practice`, alphaCookie, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rating: "good" }),
+    });
+    const firstRating = await api(`/api/review/${target.id}/rate`, alphaCookie, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rating: "good", clientRequestId: "first-review-isolated", progress: target }),
+    });
+    const refreshed = await (await api("/api/library", alphaCookie)).json() as typeof lesson.words;
+    const statsAfter = await (await api("/api/stats", alphaCookie)).json() as { reviews: number };
+    check("[HTTP] 提前练习不改排程，首次正式复习更新词库和统计",
+      practice.status === 200 && firstRating.status === 200 && refreshed.some(word => word.id === target.id && word.reps === 1 && word.due !== target.due)
+      && statsAfter.reviews === statsBefore.reviews + 1);
+
+    const analysisInput = { passageId: `lesson:${lesson.id}:word:${first.id}`, word: first.lemma, sentence: first.example };
+    const explain = (cookie: string) => api("/api/preview/explain", cookie, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(analysisInput),
+    });
+    const streamed = await explain(alphaCookie);
+    const replayedAnalysis = await (await explain(alphaCookie)).json() as { source?: string; charged?: boolean };
+    const cachedAnalysis = await (await api("/api/preview/explain?" + new URLSearchParams(analysisInput), alphaCookie)).json() as { source?: string };
+    const changedContext = await (await api("/api/preview/explain?" + new URLSearchParams({ ...analysisInput, sentence: "I went to the clinic." }), alphaCookie)).json() as { source?: string };
+    check("[HTTP] 解析只调用一次且 GET/POST 命中无扣次，句子与用户隔离",
+      streamed.status === 200 && replayedAnalysis.source === "cache" && replayedAnalysis.charged === false
+      && cachedAnalysis.source === "cache" && changedContext.source === "miss" && explanationCalls === 1
+      && (await explain(betaCookie)).status === 404);
     const chargesBeforeSpeech = await user.aiCharge.count();
     const synthesize = () => api("/api/tts", alphaCookie, {
       method: "POST", headers: { "Content-Type": "application/json" },

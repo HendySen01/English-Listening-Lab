@@ -2,7 +2,7 @@
 import express from "express";
 import { isTrustedRequestOrigin } from "./auth.js";
 import { AppError } from "./errors.js";
-import { lookupPreviewExplanation } from "./previewExplain.js";
+import { cachedOwnedExplanation, explainOwnedPassage } from "./learnerExplanation.js";
 import {
   activateOwnLesson,
   addOwnSession,
@@ -10,7 +10,6 @@ import {
   createOwnAiVersion,
   easierOwnExample,
   ensureOwnToday,
-  explainOwnedPassage,
   ownDashboard,
   ownLesson,
   ownLessons,
@@ -113,18 +112,14 @@ export function mountLearnerBusinessRoutes(app: express.Express) {
     });
     return { ...result.value, model: result.value.mocked ? "mock" : "deepseek", message: result.value.mocked ? "AI 连接成功 · mock" : "AI 连接成功" };
   });
-  route("get", "/api/preview/explain", async (req) => {
-    await learnerOf(req);
-    const found = lookupPreviewExplanation(String(req.query.passageId || ""), String(req.query.word || ""), String(req.query.sentence || ""));
-    return found || { source: "miss" };
-  });
+  route("get", "/api/preview/explain", async (req) => cachedOwnedExplanation(
+    await learnerOf(req), String(req.query.passageId || ""), String(req.query.word || ""), String(req.query.sentence || ""),
+  ));
   route("post", "/api/preview/explain", async (req) => explainOwnedPassage(
     await learnerOf(req),
     String(req.body?.passageId || ""),
     String(req.body?.word || ""),
     String(req.body?.sentence || ""),
-    req.body?.clientRequestId,
-    req.body?.inputTokens,
   ));
   route("get", "/api/dashboard", async (req) => ownDashboard(await learnerOf(req)));
   route("get", "/api/settings", async (req) => ownSettings(await learnerOf(req)));

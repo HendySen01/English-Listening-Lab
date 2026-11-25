@@ -1,5 +1,7 @@
 <template>
   <section class="rd" v-if="loaded">
+    <p v-if="feedback" class="rd-status" role="status">{{ feedback }}</p>
+    <p v-if="missing" class="rd-note" role="status">{{ missing }}</p>
     <div class="rd-frame rd-workspace lib-workspace" :class="{ 'is-detail': Boolean(current) && narrow }">
       <div class="rd-read lib-list">
         <div class="rd-segment" role="group" aria-label="复习筛选">
@@ -37,8 +39,6 @@
           <button class="rd-pill rate rate-good" type="button" :disabled="ratingBusy" @click="submit('good')">记得</button>
           <button class="rd-pill rate rate-easy" type="button" :disabled="ratingBusy" @click="submit('easy')">非常熟悉</button>
         </div>
-        <p v-if="feedback" class="rd-status" role="status">{{ feedback }}</p>
-        <p v-if="missing" class="rd-note">{{ missing }}</p>
       </aside>
       <aside v-else class="rd-notes"><p class="rd-note">选择一个到期的词。没有记录时不会新建。</p></aside>
     </div>
@@ -47,7 +47,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from "vue";
+import { onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { api } from "../api";
 import { formatDue, formatWhen } from "../lib/due";
@@ -88,6 +88,7 @@ function familiarityLabel(value: string) {
 }
 function open(item: any) {
   current.value = item;
+  formal.value = route.query.practice !== "1" && !item.knownAlready && new Date(item.due) <= new Date();
   revealed.value = false;
   feedback.value = "";
   missing.value = "";
@@ -104,7 +105,6 @@ async function submit(rating: string) {
     missing.value = "先显示答案，再评分。";
     return;
   }
-  if (formal.value && !confirm("计入正式复习后，会按这次表现用 FSRS 改写下一次复习时间。继续吗？")) return;
   ratingBusy.value = true;
   try {
     const payload: Record<string, unknown> = { rating, formal: formal.value };
@@ -118,8 +118,8 @@ async function submit(rating: string) {
       }),
     );
     feedback.value = `${result.note} 下次复习：${formatWhen(result.due)}，${formatDue(result.due, new Date())}。`;
-    formal.value = false;
     await load();
+    formal.value = false;
   } catch (error) {
     feedback.value = error instanceof Error ? error.message : "这次评分没有写入。";
     await load();
@@ -127,10 +127,12 @@ async function submit(rating: string) {
     ratingBusy.value = false;
   }
 }
-onMounted(async () => {
+async function selectTarget() {
   const focus = String(route.query.focus || "");
-  if (focus) filter.value = "all";
-  formal.value = route.query.practice === "1" ? false : false;
+  if (focus) {
+    filter.value = "all";
+    query.value = "";
+  }
   await load();
   if (focus) {
     const found = items.value.find((item) => item.id === focus);
@@ -138,6 +140,10 @@ onMounted(async () => {
     else missing.value = "这个词不在现有复习队列里。页面没有新建记录。";
   }
   loaded.value = true;
+}
+watch(() => [route.query.focus, route.query.practice], () => { void selectTarget(); });
+onMounted(async () => {
+  await selectTarget();
   timer = window.setInterval(() => { now.value = new Date(); }, 30000);
   window.addEventListener("resize", () => { narrow.value = window.matchMedia("(max-width: 900px)").matches; });
 });

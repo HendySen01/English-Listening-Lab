@@ -2,7 +2,6 @@
 import type { VerifiedLearner } from "./learnerIdentity.js";
 import { assertPaidAiMock } from "./learnerAiGuard.js";
 import { ownQuota, withAiCharge } from "./learnerQuota.js";
-import { lookupPreviewExplanation } from "./previewExplain.js";
 import { practiceOwnWord, rateOwnWord } from "./learnerReview.js";
 import { AppError } from "./errors.js";
 import { THEME_ZH } from "./content.js";
@@ -13,6 +12,7 @@ import { studyPreferences, updateStudyPreferences } from "./studyPreferences.js"
 import { createHash, randomUUID } from "node:crypto";
 import { deepseekLessonRequest } from "./deepseekLesson.js";
 import { lockLearnerScope, learnerTransactionOptions } from "./learnerLock.js";
+import { vocabularyIpa } from "./pronunciation.js";
 
 function db() {
   return learnerDb();
@@ -150,7 +150,7 @@ function presentLesson(lesson: {
       id: word.id,
       lemma: word.lemma,
       pos: word.pos,
-      ipa: word.ipa,
+      ipa: vocabularyIpa(word.lemma, word.ipa),
       ipaNote: word.ipaNote,
       stress: word.stress,
       meaningZh: word.meaningZh,
@@ -350,7 +350,7 @@ export async function createOwnAiVersion(learner: VerifiedLearner, clientRequest
       ownSettings(learner),
       db().vocabulary.findMany({ where: { userId }, select: { lemma: true }, orderBy: { createdAt: "desc" }, take: 32 }),
       db().dailyLesson.count({ where: { userId, active: true } }),
-      db().wordProgress.count({ where: { userId, reps: { gt: 0 }, due: { lte: now } } }),
+      db().wordProgress.count({ where: { userId, due: { lte: now }, vocabulary: { knownAlready: false } } }),
     ]);
     const request = deepseekLessonRequest(settings, [...new Set(recent.map(({ lemma }) => lemma.slice(0, 60)))], priorLessons, dueCount);
     const requestId = clientRequestId ?? crypto.randomUUID();
@@ -379,7 +379,7 @@ export async function createOwnAiVersion(learner: VerifiedLearner, clientRequest
       });
       const words = draft.words.map((word, index) => ({
         id: randomUUID(), lessonId: id, userId,
-        lemma: word.lemma, pos: word.pos, ipaNote: "", meaningZh: word.meaningZh,
+        lemma: word.lemma, pos: word.pos, ipa: word.ipa, ipaNote: word.ipaNote, meaningZh: word.meaningZh,
         definitionEn: word.definitionEn, collocation: word.collocation, example: word.example, exampleZh: word.exampleZh,
         morphology: word.morphology ? JSON.stringify(word.morphology) : null, difficulty: word.difficulty,
         theme: word.theme, knownAlready: false, exampleFlagged: false, createdAt: new Date(now.getTime() + index),
@@ -414,7 +414,7 @@ export async function ownLibrary(learner: VerifiedLearner) {
     id: word.id,
     lemma: word.lemma,
     pos: word.pos,
-    ipa: word.ipa,
+    ipa: vocabularyIpa(word.lemma, word.ipa),
     ipaNote: word.ipaNote,
     meaningZh: word.meaningZh,
     definitionEn: word.definitionEn,
@@ -615,7 +615,7 @@ export async function ownDashboard(learner: VerifiedLearner, now = studyNow()) {
   });
   const lesson = lessonRow ? presentLesson(lessonRow) : null;
   const dueCount = await db().wordProgress.count({
-    where: { userId: learner.learnerId, reps: { gt: 0 }, due: { lte: now } },
+    where: { userId: learner.learnerId, due: { lte: now }, vocabulary: { knownAlready: false } },
   });
   const historyRows = await db().dailyLesson.findMany({
     where: { userId: learner.learnerId },
@@ -641,7 +641,7 @@ export async function ownDashboard(learner: VerifiedLearner, now = studyNow()) {
     where: { userId: learner.learnerId, lastReview: { gte: todayBounds.start, lt: todayBounds.end } },
   });
   const upcomingRows = await db().wordProgress.findMany({
-    where: { userId: learner.learnerId, reps: { gt: 0 } },
+    where: { userId: learner.learnerId, vocabulary: { knownAlready: false } },
     include: { vocabulary: true },
     orderBy: { due: "asc" },
     take: 5,
@@ -684,19 +684,19 @@ export async function ownReviewQueue(learner: VerifiedLearner, now = new Date(),
   const matched = rows.filter((row) => {
     const word = row.vocabulary;
     if (needle && !word.lemma.toLowerCase().includes(needle) && !word.meaningZh.includes(query.trim())) return false;
-    if (filter === "due") return row.reps > 0 && row.due <= now && !word.knownAlready;
-    if (filter === "soon") return row.due.getTime() > now.getTime() && row.due.getTime() <= soon;
+    if (filter === "due") return row.due <= now && !word.knownAlready;
+    if (filter === "soon") return !word.knownAlready && row.due.getTime() > now.getTime() && row.due.getTime() <= soon;
     if (filter === "weak") return row.familiarity === "forgot" || row.familiarity === "hard" || row.lapses > 0;
     if (filter === "known") return word.knownAlready || row.familiarity === "easy";
-    return row.reps > 0 || word.knownAlready;
+    return true;
   });
   return {
-    dueCount: rows.filter((row) => row.reps > 0 && row.due <= now && !row.vocabulary.knownAlready).length,
+    dueCount: rows.filter((row) => row.due <= now && !row.vocabulary.knownAlready).length,
     items: matched.map((row) => ({
       id: row.vocabularyId,
       lemma: row.vocabulary.lemma,
       pos: row.vocabulary.pos,
-      ipa: row.vocabulary.ipa,
+      ipa: vocabularyIpa(row.vocabulary.lemma, row.vocabulary.ipa),
       meaningZh: row.vocabulary.meaningZh,
       example: row.vocabulary.example,
       exampleZh: row.vocabulary.exampleZh,
@@ -760,39 +760,7 @@ export async function recallOwnLesson(learner: VerifiedLearner, lessonId: string
   };
 }
 
-export async function explainOwnedPassage(learner: VerifiedLearner, passageId: string, word = "", sentence = "", clientRequestId?: unknown, inputTokens?: unknown) {
-  const owned = await db().dailyLesson.findFirst({ where: { id: passageId, userId: learner.learnerId }, select: { id: true } });
-  if (!owned) {
-    const other = await db().dailyLesson.count({ where: { id: passageId, userId: { not: learner.learnerId } } });
-    if (other > 0) throw new AppError(404, "NOT_FOUND", "找不到资源");
-  }
-  const cached = word ? lookupPreviewExplanation(passageId, word, sentence) : null;
-  if (cached) return { ok: true, charged: false, source: "cache" as const };
-  const declared = typeof inputTokens === "number" ? inputTokens : undefined;
-  const result = await withAiCharge({ learner, requestId: clientRequestId, kind: "explain", inputTokens: declared }, async () => {
-    assertPaidAiMock();
-    return {
-      ok: true,
-      charged: true,
-      mocked: true,
-      source: "mock",
-      passageId,
-      analysis: {
-        text: word || "word",
-        type: "word",
-        pronunciation: "",
-        partOfSpeech: "",
-        definition: "这是 Mock 解析，没有调用真实模型。",
-        usage: sentence ? `Mock 只说明这句：${sentence}` : "Mock 解析。",
-        etymology: { prefix: "", root: "", suffix: "", origin: "", originalImage: "没有调用模型，不提供词源结论。", certainty: "mock" },
-        semanticRoutes: [],
-        comparisons: [],
-        examples: [],
-      },
-    };
-  });
-  return result.value;
-}
+export { explainOwnedPassage } from "./learnerExplanation.js";
 
 export { ownQuota };
 

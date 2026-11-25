@@ -75,7 +75,7 @@ function normalizeRequestId(value: unknown) {
   return text;
 }
 
-async function ensureSchema() {
+export async function ensureAiChargeTable() {
   if (schemaReady) return;
   if (postgresRuntimeRequested()) {
     schemaReady = true;
@@ -114,7 +114,7 @@ function heldCost(rows: Array<{ reservedCostMicros: number | null; actualCostMic
 }
 
 export async function ownQuota(learner: VerifiedLearner, now = studyNow()) {
-  await ensureSchema();
+  await ensureAiChargeTable();
   const date = studyDate(now);
   const db = learnerDb();
   const limits = {
@@ -165,7 +165,7 @@ export async function withAiCharge<T>(
   const date = studyDate(now);
   const model = input.model || "mock";
   const budget = budgetConfig();
-  await ensureSchema();
+  await ensureAiChargeTable();
   const db = learnerDb();
   const reserve = async (tx: Parameters<Parameters<typeof db.$transaction>[0]>[0]) => {
     await lockLearnerScope(tx, `ai:${date}`);

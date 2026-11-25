@@ -10,7 +10,7 @@
           <button class="rd-pill" type="button" :disabled="index === passages.length - 1" @click="index += 1">下一句</button>
           <button class="rd-pill primary" type="button" @click="speak(passages[index].sentence)">朗读句子</button>
           <span class="rd-segment" role="group" aria-label="语速">
-            <button v-for="item in rates" :key="item" class="rd-pill" type="button" :aria-pressed="rate === item" @click="rate = item">{{ item }}×</button>
+            <button v-for="item in rates" :key="item" class="rd-pill" type="button" :aria-pressed="rate === item" @click="setRate(item)">{{ item }}×</button>
           </span>
         </div>
         <p class="rd-sentence" translate="no">
@@ -67,6 +67,10 @@ const rate = ref(1)
 const rates = [0.8, 1, 1.2]
 const voice = ref("浏览器语音，尚未播放")
 const speech = useSpeech()
+function setRate(next: number) {
+  rate.value = next
+  speech.changeRate(next)
+}
 const passages = computed(() => {
   if (!lesson.value) return []
   const chunks = lesson.value.listening.chunks.filter(Boolean).map((sentence, chunkIndex) => ({

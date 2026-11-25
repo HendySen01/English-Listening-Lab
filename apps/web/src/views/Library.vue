@@ -11,7 +11,7 @@
         <button v-for="word in filtered" :key="word.id" class="lib-row" type="button" :aria-pressed="current?.id === word.id" @click="choose(word.id)">
           <strong translate="no">{{ word.lemma }}</strong>
           <span>{{ word.meaningZh }}</span>
-          <span>{{ familiarityLabel(word.familiarity) }}<template v-if="word.due"> · {{ remain(word.due) }}</template></span>
+          <span>{{ word.knownAlready ? "已掌握" : word.due ? familiarityLabel(word.familiarity) : "待学习" }}<template v-if="word.due && !word.knownAlready"> · {{ remain(word.due) }}</template></span>
         </button>
         <p v-if="!filtered.length" class="rd-note">这个筛选下没有词。</p>
       </div>
@@ -70,8 +70,9 @@
           <p class="rd-copy" v-if="current.due">下次 {{ when(current.due) }} · {{ remain(current.due) }}</p>
           <p class="rd-copy" v-else>还没有复习时间。打开复习不会新建记录。</p>
           <div class="rd-actions" style="margin-top: 12px">
-            <router-link class="rd-pill primary" :to="`/review?focus=${current.id}`">开始复习</router-link>
-            <router-link class="rd-pill secondary" :to="`/review?focus=${current.id}&practice=1`">提前练习</router-link>
+            <router-link v-if="current.due && !current.knownAlready && new Date(current.due) <= now" class="rd-pill primary" :to="`/review?focus=${current.id}`">开始复习</router-link>
+            <router-link v-if="current.due" class="rd-pill secondary" :to="`/review?focus=${current.id}&practice=1`">提前练习</router-link>
+            <span v-else class="rd-copy">暂无复习计划</span>
             <router-link v-if="current.lessonId" class="rd-pill quiet" :to="`/context?lesson=${current.lessonId}&word=${current.id}`">返回学习语境</router-link>
           </div>
         </div>
@@ -112,6 +113,7 @@ type LibraryWord = {
   familiarity: string
   due: string | null
   reps: number
+  lapses: number
   lessonId: string | null
   lessonDate: string | null
   lessonTitle: string
@@ -131,6 +133,7 @@ const filters = [
   { id: "all", label: "全部" },
   { id: "due", label: "待复习" },
   { id: "soon", label: "即将到期" },
+  { id: "weak", label: "薄弱词汇" },
   { id: "known", label: "已掌握" },
 ]
 const filtered = computed(() => {
@@ -138,8 +141,9 @@ const filtered = computed(() => {
   const soon = now.value.getTime() + 48 * 60 * 60 * 1000
   return words.value.filter((word) => {
     if (q && !word.lemma.toLowerCase().includes(q) && !word.meaningZh.includes(query.value.trim())) return false
-    if (filter.value === "due") return Boolean(word.due && new Date(word.due) <= now.value && word.reps > 0 && !word.knownAlready)
-    if (filter.value === "soon") return Boolean(word.due && new Date(word.due) > now.value && new Date(word.due).getTime() <= soon)
+    if (filter.value === "due") return Boolean(word.due && new Date(word.due) <= now.value && !word.knownAlready)
+    if (filter.value === "soon") return Boolean(word.due && !word.knownAlready && new Date(word.due) > now.value && new Date(word.due).getTime() <= soon)
+    if (filter.value === "weak") return Boolean(word.due && (word.familiarity === "forgot" || word.familiarity === "hard" || word.lapses > 0))
     if (filter.value === "known") return word.knownAlready || word.familiarity === "easy"
     return true
   })
