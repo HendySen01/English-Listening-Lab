@@ -36,6 +36,7 @@ const { disconnectAuthPrisma, getAuthPrisma } = await import("./authDatabase.ts"
 const { paidAiCalls, resetPaidAiCalls, setPaidAiMock } = await import("./learnerAiGuard.ts");
 const { ownLibrary, ownStats, rateOwnWord } = await import("./learnerApi.ts");
 const { createUserRuntimeApp } = await import("./userRuntimeApp.ts");
+const { directionGuidance, lessonLearningGoal, studyPreferences, updateStudyPreferences } = await import("./studyPreferences.ts");
 const { disconnectUserPrisma, getUserPrisma } = await import("./userDatabase.ts");
 
 const failures: string[] = [];
@@ -43,6 +44,20 @@ function check(name: string, condition: boolean, detail = "") {
   if (!condition) failures.push(`${name}${detail ? `: ${detail}` : ""}`);
   else console.log(`通过 ${name}`);
 }
+
+const oldCet4 = { difficulty: "CET-4", listeningLevel: "match" };
+const oldPrefs = studyPreferences(oldCet4);
+check("[设置] 旧 CET-4 保留学习方向，以 B1 作为原词库基准", oldPrefs.learningDirection === "cet4" && oldPrefs.difficulty === "B1");
+const guidance = Object.keys(directionGuidance).map(learningDirection => lessonLearningGoal({
+  ...oldCet4, learningDirection, difficulty: "C2", customLearningGoal: "Travel vocabulary",
+}));
+check("[设置] 九个方向都各有提示且不限制 CEFR",
+  guidance.length === 9 && new Set(guidance.map(item => item.material)).size === 9
+  && updateStudyPreferences(oldCet4, { difficulty: "C2", learningDirection: "ielts" }).difficulty === "C2");
+const custom = updateStudyPreferences(oldCet4, { learningDirection: "custom", customLearningGoal: "Travel\n" + "x".repeat(200) });
+check("[设置] 自定义目标作为独立、有界的提示数据",
+  custom.customLearningGoal.length === 160 && !custom.customLearningGoal.includes("\n")
+  && lessonLearningGoal(custom).customGoal === custom.customLearningGoal);
 
 function removeDatabase(file: string) {
   for (const suffix of ["", "-wal", "-shm"]) {
@@ -75,6 +90,7 @@ removeDatabase(authRuntimeFile);
 await backupLabReadonly(runtimeFile);
 const migrated = new DatabaseSync(runtimeFile);
 assignLearnerOwnership(migrated);
+migrated.exec(fs.readFileSync(path.join(repoRoot, "apps/server/prisma-neon-user/migrations/20261125120000_learning_direction/migration.sql"), "utf8"));
 const originalProgress = JSON.stringify(migrated.prepare("SELECT id, due, stability, reps, lapses, state, lastReview FROM WordProgress WHERE userId = ? ORDER BY id").all(originalLearnerId));
 migrated.close();
 execSync("node scripts/auth/push.mjs", { cwd: path.join(repoRoot, "apps/server"), env: process.env, stdio: "inherit" });
@@ -400,7 +416,7 @@ try {
     process.env.TTS_VOICE = "tide";
     await api("/api/settings", alphaCookie, {
       method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ dailyNewWords: 3, theme: "Custom", customTheme: "Health visits", difficulty: "B1", listeningLevel: "A1", wordPartsEnabled: false }),
+      body: JSON.stringify({ dailyNewWords: 3, theme: "Custom", customTheme: "Health visits", difficulty: "A2", listeningLevel: "A1", wordPartsEnabled: false, learningDirection: "ielts" }),
     });
     const generate = (requestId: string) => api("/api/lessons/ai-version", alphaCookie, {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -420,9 +436,14 @@ try {
     check("[HTTP] DeepSeek Flash 生成整课时显式关闭思考模式", thinkingMode === "disabled");
     check("[HTTP] 整课模型使用保存的词数、主题、难度、听力和词根设置",
       modelSettings.count === 3 && modelSettings.theme === "Health visits"
-      && modelSettings.difficulty === "B1" && modelSettings.listeningLevel === "A1"
+      && modelSettings.difficulty === "A2" && modelSettings.listeningLevel === "A1"
       && modelSettings.listeningLength === "short" && modelSettings.morphology === "Always null"
-      && saved?.theme === "Health visits" && saved?.difficulty === "B1");
+      && saved?.theme === "Health visits" && saved?.difficulty === "A2"
+      && (modelSettings.learningGoal as { direction?: string })?.direction === "ielts");
+    const reloaded = await (await api("/api/settings", alphaCookie)).json() as { learningDirection?: string; difficulty?: string };
+    const untouched = await (await api("/api/settings", betaCookie)).json() as { learningDirection?: string };
+    check("[HTTP] 学习方向独立于 CEFR，保存后可刷新且隔离",
+      reloaded.learningDirection === "ielts" && reloaded.difficulty === "A2" && untouched.learningDirection === "general");
     const chargesBeforeSpeech = await user.aiCharge.count();
     const synthesize = () => api("/api/tts", alphaCookie, {
       method: "POST", headers: { "Content-Type": "application/json" },

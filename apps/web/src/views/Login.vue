@@ -71,10 +71,23 @@ async function signIn() {
   busy.value = true;
   message.value = "";
   try {
-    const result = await authClient.signIn.email({ email: email.value, password: password.value });
+    let retryAfter = 0;
+    const result = await authClient.signIn.email({
+      email: email.value, password: password.value,
+      fetchOptions: {
+        retry: 0,
+        onError({ response }) {
+          const value = response.headers.get("Retry-After") || response.headers.get("X-Retry-After") || "";
+          retryAfter = /^\d+$/.test(value) ? Number(value) : Math.ceil((Date.parse(value) - Date.now()) / 1000);
+        },
+      },
+    });
     if (result.error) {
       const status = "status" in result.error ? Number(result.error.status) : 0;
-      message.value = status === 429 ? "尝试次数太多，请稍后再试。" : status === 401 ? "邮箱或密码不正确。" : "登录没有完成，请稍后再试。";
+      const wait = retryAfter >= 60 ? `${Math.ceil(retryAfter / 60)} 分钟` : `${retryAfter} 秒`;
+      message.value = status === 429
+        ? retryAfter > 0 ? `尝试次数太多，请等待约 ${wait}再试。` : "尝试次数太多，请稍后再试。"
+        : status === 401 ? "邮箱或密码不正确。" : "登录没有完成，请稍后再试。";
       return;
     }
     if (!(await prepareLearner())) return;

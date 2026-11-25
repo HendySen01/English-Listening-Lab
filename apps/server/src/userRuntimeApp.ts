@@ -3,6 +3,7 @@ import { toNodeHandler } from "better-auth/node";
 import { authMailConfigured } from "./authMail.js";
 import cors from "cors";
 import express from "express";
+import { isIP } from "node:net";
 import { clientIpHeader, getAuth, inviteConfigured, learnerProvisioningEnabled, publicSignupEnabled, runWithInvite } from "./auth.js";
 import { productionTrustedOrigins } from "./productionBoot.js";
 import { previewTrustedOrigins } from "./previewBoot.js";
@@ -41,10 +42,12 @@ async function requireLearner(req: express.Request) {
   return resolved.learner;
 }
 
-function vercelIp(req: express.Request) {
-  const header = String(req.headers["x-vercel-forwarded-for"] || "");
-  const first = header.split(",")[0]?.trim() || "";
-  if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(first) || first.includes(":")) return first;
+export function vercelIp(headers: express.Request["headers"]) {
+  // Vercel owns these headers on this entry point. Reject lists and arbitrary client headers.
+  for (const name of ["x-vercel-forwarded-for", "x-forwarded-for"]) {
+    const address = headers[name];
+    if (typeof address === "string" && isIP(address.trim())) return address.trim();
+  }
   return "";
 }
 
@@ -55,7 +58,7 @@ export function createUserRuntimeApp(options: { platform?: "local" | "vercel" } 
   app.set("trust proxy", vercel ? 1 : false);
   app.use((req, _res, next) => {
     delete req.headers[clientIpHeader];
-    const ip = vercel ? vercelIp(req) : socketIp(req);
+    const ip = vercel ? vercelIp(req.headers) : socketIp(req);
     if (ip) req.headers[clientIpHeader] = ip;
     next();
   });

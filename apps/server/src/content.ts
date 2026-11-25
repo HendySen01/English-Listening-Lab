@@ -147,7 +147,7 @@ export function estimateMinutes(newWords: number, dueCount: number, wordParts: b
 export function listeningBand(priorLessons: number, listeningLevel: string, difficulty: string): ListeningBand {
   const level = listeningLevel === "match" ? difficulty : listeningLevel;
   if (level === "A1" || level === "A2") return "short";
-  if (level === "CET-4" || level === "B2" || level === "B1+") {
+  if (["CET-4", "B1+", "B2", "C1", "C2"].includes(level)) {
     if (priorLessons >= 21) return "long";
     if (priorLessons >= 7) return "medium";
     return "short";
@@ -158,6 +158,8 @@ export function listeningBand(priorLessons: number, listeningLevel: string, diff
 }
 
 function rank(level: string) {
+  if (level === "C1") return LEVELS.length;
+  if (level === "C2") return LEVELS.length + 1;
   const index = LEVELS.indexOf(level as Level);
   return index === -1 ? 2 : index;
 }

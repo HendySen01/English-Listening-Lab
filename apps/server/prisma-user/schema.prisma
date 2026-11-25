@@ -40,6 +40,8 @@ model UserSettings {
   dailyMinutes           Int
   theme                  String
   customTheme            String
+  learningDirection      String?
+  customLearningGoal     String?
   autoGenerate           Boolean
   ttsVoice               String
   speechRate             Float

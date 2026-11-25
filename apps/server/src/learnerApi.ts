@@ -9,6 +9,7 @@ import { THEME_ZH } from "./content.js";
 import { addStudyDays, readStudyTimeZone, studyDate, studyDayBounds, studyNow } from "./studyTime.js";
 import { previewDays, type RatingName } from "./srs.js";
 import { learnerDb } from "./runtimeClients.js";
+import { studyPreferences, updateStudyPreferences } from "./studyPreferences.js";
 import { createHash, randomUUID } from "node:crypto";
 import { deepseekLessonRequest } from "./deepseekLesson.js";
 import { lockLearnerScope, learnerTransactionOptions } from "./learnerLock.js";
@@ -552,7 +553,9 @@ function sumBy<T>(rows: T[], dateOf: (row: T) => string, valueOf: (row: T) => nu
 
 export const settingDefaults = {
   dailyNewWords: 6,
-  difficulty: "A2+",
+  difficulty: "A2",
+  learningDirection: "general",
+  customLearningGoal: "",
   listeningLevel: "match",
   dailyMinutes: 60,
   theme: "Daily Life",
@@ -568,16 +571,15 @@ export const settingDefaults = {
 
 export async function ownSettings(learner: VerifiedLearner) {
   const current = await db().userSettings.findUnique({ where: { userId: learner.learnerId } });
-  if (current) return current;
-  return db().userSettings.create({
+  if (current) return studyPreferences(current);
+  return studyPreferences(await db().userSettings.create({
     data: { id: `settings_${learner.learnerId}`, userId: learner.learnerId, ...settingDefaults, updatedAt: new Date() },
-  });
+  }));
 }
 
 export async function updateOwnSettings(learner: VerifiedLearner, input: Record<string, unknown>) {
   const current = await ownSettings(learner);
   const themes = Object.keys(THEME_ZH);
-  const levels = ["A1", "A2", "A2+", "B1", "B1+", "B2", "CET-4", "match"];
   const modes = ["light", "dark", "system"];
   const rates = [0.8, 0.9, 1, 1.1, 1.2];
   return db().userSettings.update({
@@ -585,8 +587,7 @@ export async function updateOwnSettings(learner: VerifiedLearner, input: Record<
     data: {
       dailyNewWords: clamp(input.dailyNewWords, 3, 20, current.dailyNewWords),
       dailyMinutes: clamp(input.dailyMinutes, 20, 180, current.dailyMinutes),
-      difficulty: levels.includes(String(input.difficulty)) ? String(input.difficulty) : current.difficulty,
-      listeningLevel: levels.includes(String(input.listeningLevel)) ? String(input.listeningLevel) : current.listeningLevel,
+      ...updateStudyPreferences(current, input),
       theme: themes.includes(String(input.theme)) ? String(input.theme) : current.theme,
       customTheme: String(input.customTheme ?? current.customTheme).slice(0, 40),
       autoGenerate: typeof input.autoGenerate === "boolean" ? input.autoGenerate : current.autoGenerate,

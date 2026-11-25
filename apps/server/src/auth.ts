@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { APIError, betterAuth } from "better-auth";
 import { createAuthMiddleware } from "better-auth/api";
 import { prismaAdapter } from "better-auth/adapters/prisma";
@@ -17,6 +17,25 @@ export function runWithInvite<T>(invite: string, work: () => T) {
   return inviteStore.run(invite, work);
 }
 const sessionSeconds = 60 * 60 * 24 * 7;
+const loginWindow = 15 * 60;
+
+export async function reserveAccountLogin(email: string, secret: string, now = Date.now()) {
+  const digest = createHmac("sha256", secret).update(email.trim().toLowerCase()).digest("hex");
+  const key = `lab-login:account:${digest}`;
+  const cutoff = BigInt(now - loginWindow * 1000);
+  return authDb().$transaction(async (tx) => {
+    const row = await tx.rateLimit.upsert({
+      where: { key }, create: { id: key, key, count: 0, lastRequest: BigInt(now) }, update: { key },
+    });
+    if (row.lastRequest <= cutoff) {
+      await tx.rateLimit.update({ where: { key }, data: { count: 1, lastRequest: BigInt(now) } });
+      return 0;
+    }
+    if (row.count >= 5) return Math.max(1, Math.ceil((Number(row.lastRequest) - Number(cutoff)) / 1000));
+    await tx.rateLimit.update({ where: { key }, data: { count: { increment: 1 } } });
+    return 0;
+  });
+}
 
 export function authSecret() {
   const secret = process.env.BETTER_AUTH_SECRET?.trim() || "";
@@ -137,7 +156,8 @@ export function getAuth() {
   const inviteHash = createHash("sha256").update(inviteCode()).digest("hex").slice(0, 12);
   const key = `${secret}\n${process.env.BETTER_AUTH_URL || ""}\n${process.env.AUTH_DATABASE_URL || ""}\n${process.env.AUTH_SELFTEST || ""}\n${process.env.POSTGRES_RUNTIME || ""}\n${publicSignupEnabled() ? "signup" : "no-signup"}\n${process.env.VERCEL_ENV || ""}\n${inviteHash}`;
   const mail = authMailConfigured();
-  const runtimeKey = `${key}\n${mail}`;
+  const multiUser = learnerProvisioningEnabled();
+  const runtimeKey = `${key}\n${mail}\n${multiUser}`;
   if (auth && authKey === runtimeKey) return auth;
   authKey = runtimeKey;
   auth = betterAuth({
@@ -167,6 +187,14 @@ export function getAuth() {
     } : undefined,
     hooks: {
       before: createAuthMiddleware(async (context) => {
+        if (multiUser && context.path === "/sign-in/email" && typeof context.body?.email === "string") {
+          const wait = await reserveAccountLogin(context.body.email, secret);
+          if (wait) {
+            throw new APIError("TOO_MANY_REQUESTS", {
+              message: "尝试次数太多，请稍后再试。", code: "LOGIN_RATE_LIMIT",
+            }, { "Retry-After": String(wait) });
+          }
+        }
         if (context.path !== "/reset-password") return;
         const issue = passwordIssue(String(context.body?.newPassword || ""));
         if (issue) throw new APIError("BAD_REQUEST", { message: issue, code: "WEAK_PASSWORD" });
@@ -209,8 +237,9 @@ export function getAuth() {
       window: 60,
       max: 100,
       customRules: {
-        "/sign-in/email": { window: 15 * 60, max: 5 },
+        "/sign-in/email": { window: loginWindow, max: multiUser ? 60 : 5 },
         "/sign-up/email": { window: 15 * 60, max: 8 },
+        "/get-session": { window: 60, max: 120 },
         "/request-password-reset": { window: 15 * 60, max: 5 },
         "/send-verification-email": { window: 15 * 60, max: 5 },
         "/reset-password": { window: 15 * 60, max: 8 },

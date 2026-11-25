@@ -42,7 +42,7 @@ execFileSync(process.execPath, [path.join(repoRoot, "node_modules", "prisma", "b
   stdio: "inherit",
 });
 
-const { createUserRuntimeApp } = await import("./userRuntimeApp.ts");
+const { createUserRuntimeApp, vercelIp } = await import("./userRuntimeApp.ts");
 const { disconnectAuthPrisma, getAuthPrisma } = await import("./authDatabase.ts");
 const { createPrivateTestAccount, getAuth, publicSignupEnabled } = await import("./auth.ts");
 const { provisionOwnLearner, setProvisionFault } = await import("./learnerProvision.ts");
@@ -84,11 +84,11 @@ async function signup(email: string, nextPassword = password, headers: Record<st
   });
 }
 
-async function signIn(email: string) {
+async function signIn(email: string, submittedPassword = password) {
   return fetch(`${base}/api/auth/sign-in/email`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...origin },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password: submittedPassword }),
   });
 }
 
@@ -100,6 +100,10 @@ async function api(pathname: string, cookie = "", init: RequestInit = {}) {
 }
 
 try {
+  check("[代理] 仅接受可信平台头中的单个合法地址",
+    vercelIp({ "x-vercel-forwarded-for": "192.0.2.2", "x-forwarded-for": "192.0.2.9" }) === "192.0.2.2"
+    && vercelIp({ "x-vercel-forwarded-for": "invalid:fake", "x-forwarded-for": "2001:db8::2" }) === "2001:db8::2"
+    && vercelIp({ "x-forwarded-for": "192.0.2.1, 192.0.2.2", "x-real-ip": "192.0.2.3", "x-lab-client-ip": "192.0.2.4" }) === "");
   const status = await fetch(`${base}/api/signup-status`);
   const statusBody = await status.json() as { enabled?: boolean; emailDelivery?: string; learnerProvisioning?: boolean };
   check("[注册] 隔离环境开放注册且不声称已发邮件", status.status === 200 && statusBody.enabled === true && statusBody.emailDelivery === "unconfigured" && statusBody.learnerProvisioning === true);
@@ -229,6 +233,21 @@ try {
     if (response.status === 429) blocked = true;
   }
   check("[注册] 注册请求会被限流", blocked);
+  await getAuthPrisma().rateLimit.deleteMany({ where: { key: { startsWith: "lab-login:account:" } } });
+  const wrongAttempts = await Promise.all(Array.from({ length: 5 }, () => signIn("alpha-reg@lab.test", "incorrect-1844")));
+  const limitedLogin = await signIn("ALPHA-REG@lab.test");
+  const waitSeconds = Number(limitedLogin.headers.get("retry-after"));
+  check("[登录] 同账号恶意请求到达限额并返回剩余时间",
+    wrongAttempts.every((result) => result.status === 401) && limitedLogin.status === 429 && waitSeconds > 0 && waitSeconds <= 900,
+    `attempts=${wrongAttempts.map(result => result.status).join(",")} blocked=${limitedLogin.status} retryAfter=${waitSeconds}`);
+  const otherLogin = await signIn("beta-reg@lab.test");
+  check("[登录] 同一来源的其他账号仍可正常登录", otherLogin.status === 200);
+  const otherSession = await api("/api/auth/get-session", cookieFrom(otherLogin));
+  check("[登录] 登录限流不影响会话查询", otherSession.status === 200);
+  await getAuthPrisma().rateLimit.updateMany({
+    where: { key: { startsWith: "lab-login:account:" } }, data: { lastRequest: BigInt(Date.now() - 901_000) },
+  });
+  check("[登录] 窗口到期后同账号恢复登录", (await signIn("alpha-reg@lab.test")).status === 200);
 
   const fetchHttp = globalThis.fetch;
   const sent: string[] = [];

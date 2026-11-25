@@ -6,18 +6,27 @@
     <div>
     <article class="card stack" v-show="section === 'plan'">
       <h2>学习计划</h2>
-      <p class="notice">新词数量、难度和主题会在下一次生成新课时生效。已经生成的今天课程不会被悄悄覆盖。</p>
+      <p class="notice">学习方向、英语水平和其他计划设置会在下一次生成新课时生效。</p>
+      <label class="field">学习方向
+        <select v-model="form.learningDirection" aria-describedby="learning-direction-help">
+          <option v-for="[value, label] in learningDirections" :key="value" :value="value">{{ label }}</option>
+        </select>
+        <small id="learning-direction-help">{{ learningDirections.find(([value]) => value === form.learningDirection)?.[2] }}</small>
+      </label>
+      <label v-if="form.learningDirection === 'custom'" class="field">自定义学习目标
+        <textarea v-model="form.customLearningGoal" rows="2" maxlength="160" placeholder="例如：练习旅游时问路和解决住宿问题"></textarea>
+      </label>
       <label class="field">每天新词（3–20）<input type="number" min="3" max="20" v-model.number="form.dailyNewWords" /></label>
       <label class="field">计划分钟<input type="number" min="20" max="180" v-model.number="form.dailyMinutes" /></label>
-      <label class="field">词汇难度
+      <label class="field">当前英语水平（CEFR）
         <select v-model="form.difficulty">
-          <option>A1</option><option>A2</option><option>A2+</option><option>B1</option><option>B1+</option><option>B2</option><option>CET-4</option>
+          <option v-for="[value, label] in cefr" :key="value" :value="value">{{ value }} · {{ label }}</option>
         </select>
       </label>
       <label class="field">听力难度
         <select v-model="form.listeningLevel">
-          <option value="match">跟词汇难度</option>
-          <option>A1</option><option>A2</option><option>A2+</option><option>B1</option><option>B1+</option><option>B2</option><option>CET-4</option>
+          <option value="match">跟随当前英语水平</option>
+          <option v-for="[value, label] in cefr" :key="value" :value="value">{{ value }} · {{ label }}</option>
         </select>
       </label>
       <label class="field">主题
@@ -38,6 +47,8 @@
       <label v-if="!sessionUser" class="row"><input type="checkbox" v-model="form.autoGenerate" /> 没有今天的课时自动生成</label>
       <label class="row"><input type="checkbox" v-model="form.wordPartsEnabled" /> 显示词根词缀</label>
       <label class="row"><input type="checkbox" v-model="form.recommendationsEnabled" /> 显示数量建议</label>
+      <p v-if="message" :class="error ? 'bad' : 'ok'" role="status">{{ message }}</p>
+      <button class="choice active" @click="save">保存学习计划</button>
     </article>
     <article class="card stack" v-show="section === 'ai'">
       <h2>AI 服务</h2>
@@ -100,6 +111,18 @@ import { applyTheme, useAppStore } from "../stores/app";
 import { sessionUser } from "../lib/authClient";
 
 const store = useAppStore();
+const cefr = [["A1", "入门"], ["A2", "初级"], ["B1", "中级"], ["B2", "中高级"], ["C1", "高级"], ["C2", "精通"]];
+const learningDirections = [
+  ["general", "日常英语", "练习生活词汇、自然对话和常见交际场景。"],
+  ["highSchool", "高中英语", "围绕学校和社会主题练习句型、阅读与推断。"],
+  ["cet4", "CET-4", "练习常用考试词汇、校园听力与主旨细节。"],
+  ["cet6", "CET-6", "练习正式词汇、学术话题、立场和推断。"],
+  ["postgraduate", "考研英语", "练习论证结构、同义改写和阅读推断。"],
+  ["ielts", "IELTS", "练习生活与学术场景、改写及说话者态度。"],
+  ["toefl", "TOEFL", "练习校园对话、学术讲座及信息组织。"],
+  ["business", "商务英语", "练习职场邮件、会议、决策和表达语气。"],
+  ["custom", "自定义学习目标", "按你给出的实际需求安排原创练习。"],
+];
 const sections = [
   { id: "plan", label: "学习计划" },
   { id: "ai", label: "AI 服务" },
