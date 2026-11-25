@@ -195,6 +195,25 @@ try {
   const stored = await getAuthPrisma().rateLimit.findFirst({ where: { key: { contains: "/sign-in/email" } } });
   check("第六次登录被数据库限流", blocked.status === 429 && Boolean(stored && stored.count >= 5), `status=${blocked.status} count=${stored?.count}`);
 
+  const speechDayStart = Math.floor(Date.now() / 86_400_000) * 86_400_000;
+  const speechKey = "lab-tts:user:auth-selftest";
+  const staleKey = "auth-selftest:expired";
+  const oldSpeechKey = "lab-tts:user:expired-selftest";
+  await getAuthPrisma().rateLimit.createMany({
+    data: [
+      { id: speechKey, key: speechKey, count: 1, lastRequest: BigInt(speechDayStart) },
+      { id: staleKey, key: staleKey, count: 1, lastRequest: BigInt(speechDayStart - 1) },
+      { id: oldSpeechKey, key: oldSpeechKey, count: 1, lastRequest: BigInt(speechDayStart - 1) },
+    ],
+  });
+  await (await auth.$context).adapter.deleteMany({
+    model: "rateLimit",
+    where: [{ field: "lastRequest", operator: "lt", value: speechDayStart + 1 }],
+  });
+  const buckets = await getAuthPrisma().rateLimit.findMany({ where: { key: { in: [speechKey, staleKey, oldSpeechKey] } } });
+  check("认证限流清理保留当天语音次数，并清理旧的计次桶",
+    buckets.length === 1 && buckets[0].key === speechKey && buckets[0].count === 1);
+
   await disconnectAuthPrisma();
   await new Promise<void>((resolve) => server.close(() => resolve()));
   const restarted = spawnSync(process.execPath, ["--import", "tsx", fileURLToPath(new URL("./authSelftest.ts", import.meta.url)), "restart"], {

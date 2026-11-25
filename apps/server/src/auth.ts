@@ -160,6 +160,23 @@ export function getAuth() {
   const runtimeKey = `${key}\n${mail}\n${multiUser}`;
   if (auth && authKey === runtimeKey) return auth;
   authKey = runtimeKey;
+  const database = authDb().$extends({
+    query: {
+      rateLimit: {
+        deleteMany({ args, query }) {
+          // Better Auth uses shorter windows than the UTC-day speech quota.
+          const speechDayStart = BigInt(Math.floor(Date.now() / 86_400_000) * 86_400_000);
+          args.where = {
+            AND: [
+              args.where ?? {},
+              { OR: [{ key: { not: { startsWith: "lab-tts:" } } }, { lastRequest: { lt: speechDayStart } }] },
+            ],
+          };
+          return query(args);
+        },
+      },
+    },
+  });
   auth = betterAuth({
     appName: "英语学习实验室",
     baseURL: process.env.VERCEL === "1"
@@ -168,7 +185,7 @@ export function getAuth() {
     basePath: "/api/auth",
     secret,
     trustedOrigins: trustedOrigins(),
-    database: prismaAdapter(authDb(), { provider: postgresRuntimeRequested() ? "postgresql" : "sqlite" }),
+    database: prismaAdapter(database, { provider: postgresRuntimeRequested() ? "postgresql" : "sqlite" }),
     emailAndPassword: {
       enabled: true,
       disableSignUp: !publicSignupEnabled(),
