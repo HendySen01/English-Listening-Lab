@@ -78,7 +78,7 @@ export async function explainOwnedPassage(learner: VerifiedLearner, passageId: s
   const nextAttempt = !prior ? 0 : Number(prior.requestId.slice(-6)) + Number(prior.status === "failed" || prior.status === "succeeded");
   const requestId = context.prefix + String(nextAttempt).padStart(6, "0");
   const input = JSON.stringify({ word: context.word, sentence: context.sentence });
-  const outputTokens = Math.min(aiOutputTokenLimit(), 2400);
+  const outputTokens = Math.min(aiOutputTokenLimit(), 3200);
   const result = await withAiCharge({
     learner, kind: "explain", requestId, model: configured.model,
     inputTokens: Buffer.byteLength(explanationSystemPrompt + input) + 128, outputTokens,
@@ -93,10 +93,19 @@ export async function explainOwnedPassage(learner: VerifiedLearner, passageId: s
         messages: [{ role: "system", content: explanationSystemPrompt }, { role: "user", content: input }],
       }),
     });
-    const body = response.ok ? await response.json().catch(() => null) : null;
+    if (!response.ok) {
+      console.warn("DeepSeek explanation rejected by upstream", { status: response.status });
+      throw new AppError(502, "AI_RESPONSE_REJECTED", "深度解析未返回完整结果，请稍后再试。");
+    }
+    const body = await response.json().catch(() => null);
     const choice = body?.choices?.[0];
     const parsed = validateExplanation(choice?.message?.content);
     if (choice?.finish_reason !== "stop" || !parsed.ok) {
+      console.warn("DeepSeek explanation response rejected", {
+        truncated: choice?.finish_reason === "length",
+        empty: typeof choice?.message?.content !== "string" || !choice.message.content.trim(),
+        invalidSchema: !parsed.ok,
+      });
       throw new AppError(502, "AI_RESPONSE_REJECTED", "深度解析未返回完整结果，请稍后再试。");
     }
     return { ok: true, source: "live", model: configured.model, analysis: {
