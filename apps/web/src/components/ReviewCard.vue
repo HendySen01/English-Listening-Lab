@@ -1,8 +1,8 @@
 <template>
-  <section class="rd review-study" aria-label="旧词复习">
+  <section class="rd review-study" :aria-label="activeOutput ? '主动回忆' : '旧词复习'">
     <header class="review-head"><span class="rd-kicker">ACTIVE RECALL</span><span v-if="remaining !== undefined" class="rd-note">剩余 {{ remaining }} 个词</span></header>
     <div class="review-focus">
-      <p class="rd-note">先回忆含义，再试着用它说一句话。</p>
+      <p class="rd-note">{{ activeOutput ? "先试着用这个词说一句自己的英文，再查看参考答案。" : "先回忆含义，再试着用它说一句话。" }}</p>
       <div class="review-word"><h2 class="rd-word" translate="no">{{ item.lemma }}</h2><button class="rd-icon" type="button" :aria-label="'朗读 '+item.lemma" @click="speak(item.lemma)"><Volume2 :size="20" aria-hidden="true" /></button></div>
       <p class="rd-meta">{{ item.pos }} <span v-if="item.ipa">· {{ item.ipa }}</span></p>
       <button v-if="!show" class="rd-pill primary reveal" type="button" @click="show = true">显示答案</button>
@@ -32,7 +32,7 @@ import { useStudySpeech } from "../composables/useStudySpeech";
 import { intervalLabel, grades, type Grade } from "../lib/reviewPresentation";
 import BlurText from "../preview/BlurText.vue";
 import "../preview/reader.css";
-const props = defineProps<{ item: any; remaining?: number }>();
+const props = defineProps<{ item: any; remaining?: number; activeOutput?: boolean }>();
 const emit = defineEmits<{ done: [] }>();
 const show = ref(false), translation = ref(false), recognizeOnly = ref(false), ratingBusy = ref(false), error = ref("");
 const { speech, rate: speechRate } = useStudySpeech();

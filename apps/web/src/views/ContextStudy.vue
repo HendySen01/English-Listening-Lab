@@ -1,6 +1,6 @@
 <template>
   <section class="rd" v-if="lesson">
-    <p class="rd-kicker">{{ lesson.lessonDate }} · {{ lesson.sourceLabel }}</p>
+    <div class="rd-tools"><router-link v-if="route.query.from==='listening' || route.query.from==='standalone-listening'" class="rd-pill" :to="route.query.from==='listening'?`/lesson/${lesson.id}`:'/listening'">← 返回课程听力</router-link><span class="rd-kicker">{{ lesson.lessonDate }} · {{ lesson.sourceLabel }}</span><span class="rd-note">{{ index+1 }} / {{ passages.length }}</span></div>
     <h2 class="rd-title">{{ lesson.listening.title }}</h2>
     <p class="rd-note">先读英文，遇到困难再查看中文。点击单词理解它在这句话里的用法。</p>
     <div class="rd-frame rd-workspace">

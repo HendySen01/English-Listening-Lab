@@ -184,6 +184,7 @@ function presentLesson(lesson: {
       correctCount: word.progress?.correctCount ?? 0,
       incorrectCount: word.progress?.incorrectCount ?? 0,
       intervals: word.progress ? previewDays(word.progress, new Date()) : null,
+      intervalMinutes: word.progress ? previewMinutes(word.progress,new Date()) : null,
     })),
     questions: (lesson.questions || []).map((question) => {
       const attempt = question.attempts[question.attempts.length - 1];

@@ -46,6 +46,7 @@ export type Word = {
   correctCount: number;
   incorrectCount: number;
   intervals: { again: number; hard: number; good: number; easy: number } | null;
+  intervalMinutes?: { again: number; hard: number; good: number; easy: number } | null;
 };
 
 export type Question = {

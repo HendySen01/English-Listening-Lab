@@ -3,7 +3,7 @@
     <p class="rd-kicker">{{ lesson.sourceLabel }} · {{ lesson.listening.title }}</p>
     <div class="rd-stages">
       <div class="rd-segment" role="tablist" aria-label="听力阶段">
-        <button v-for="(label, stageIndex) in stages" :key="label" class="rd-pill" type="button" :aria-pressed="stage === stageIndex" :disabled="feedbackBusy" @click="setStage(stageIndex)">{{ label }}</button>
+        <button v-for="(label, stageIndex) in stages" :key="label" class="rd-pill" type="button" :aria-pressed="stage === stageIndex" :disabled="feedbackBusy || saving || translationBusy" @click="setStage(stageIndex)">{{ label }}</button>
       </div>
     </div>
     <div class="rd-tools" style="margin-bottom: 12px">
@@ -15,6 +15,7 @@
     </div>
     <p v-if="rateError" class="rd-note" role="status">{{ rateError }}</p>
     <ListeningGist v-if="stage === 0" :key="lesson.id" :lesson-id="lesson.id" :initial-answer="lesson.progress.listening.firstGist" @saved="lesson.progress.listening.firstGist = $event" @busy="feedbackBusy = $event" @next="setStage(1)" />
+    <div v-if="stage === 1 || stage === 2" class="rd-note listening-guide">{{ stage === 1 ? "对照原文，点击不熟悉的词；中文仅在需要时查看。" : "再听一遍，留意刚才没听出来的表达。可按需对照原文。" }}</div>
     <ExpandFold :open="stage === 1 || stage === 2" :limit="false">
       <div class="rd-frame rd-workspace">
         <div class="rd-read">
@@ -33,14 +34,20 @@
         <ReaderNotes column-scroll :key="selected" :word="selected" :analysis="analysis" :summary="summary" :source="source" :loading="loading" :error="error" mark="" @speak="(text) => speak(text)" @explain="explain" />
       </div>
     </ExpandFold>
+    <div v-if="stage === 1 || stage === 2" class="listening-next">
+      <router-link v-if="stage===1" class="rd-pill" :to="{path:'/context',query:{lesson:lesson.id,from:lesson.progress.step==='listening'?'listening':'standalone-listening'}}">逐句语境阅读</router-link>
+      <button class="rd-pill primary" :disabled="saving || translationBusy" @click="setStage(stage+1)">{{ stage===1 ? "原文已读，开始再听 →" : "再听结束，尝试回忆 →" }}</button>
+    </div>
     <ExpandFold :open="stage === 3" :limit="false">
       <div class="rd-box">
-        <p class="rd-copy">先不看原文，写下主要意思。</p>
-        <textarea v-model="lesson.progress.listening.recall" class="rd-field" rows="4" placeholder="用简体中文或简单英文写下大意"></textarea>
-        <button class="rd-pill primary" style="margin-top: 8px" type="button" @click="checkRecall">对照原文</button>
-        <p v-if="lesson.progress.listening.recallNote" class="rd-status" role="status">{{ lesson.progress.listening.recallNote }}</p>
+        <p class="rd-copy">Without looking at the transcript, retell the main idea in your own words.</p>
+        <p class="rd-note">试着用英文复述。此处保存自己的练习，不把关键词检查当成 AI 评分。</p>
+        <textarea v-model="lesson.progress.listening.recall" class="rd-field" rows="4" lang="en" placeholder="Retell the passage in English…"></textarea>
+        <button class="rd-pill" style="margin-top: 8px" type="button" :disabled="saving" @click="showReference = !showReference">{{ showReference ? "隐藏原文" : "对照原文" }}</button>
+        <div v-if="showReference" class="recall-reference"><p v-for="item in passages" :key="item.id" lang="en" translate="no">{{ item.sentence }}</p></div>
+        <div class="listening-next"><button class="rd-pill primary" :disabled="saving || !lesson.progress.listening.recall.trim()" @click="emit('next')">保存英文回忆，进入跟读 →</button><button class="rd-pill" :disabled="saving" @click="emit('next')">暂时跳过回忆</button></div>
       </div>
-      <QuizBlock :lesson="lesson" @changed="emit('save')" />
+
     </ExpandFold>
   </section>
 </template>
@@ -59,12 +66,12 @@ import { useExplanation } from "../preview/explain"
 import { tokenize } from "../preview/reader-data"
 import { useStudySpeech } from "../composables/useStudySpeech"
 import { api } from "../api"
-import QuizBlock from "./QuizBlock.vue"
 import type { Lesson, Progress } from "../stores/app"
 import "../preview/reader.css"
 
-const props = defineProps<{ lesson: Lesson }>()
-const emit = defineEmits<{ save: [progress?: Progress] }>()
+const props = defineProps<{ lesson: Lesson; saving?: boolean }>()
+const emit = defineEmits<{ save: [progress?: Progress]; next: []; busy:[value:boolean] }>()
+const showReference=ref(false)
 const stages = ["1 盲听", "2 原文", "3 再听", "4 回忆"]
 const stage = ref(Math.max(0, Math.min(3, (props.lesson.progress.listening.round || 1) - 1)))
 const selected = ref("")
@@ -72,6 +79,8 @@ const selectedIndex=ref(-1),revealed=ref<Record<number,boolean>>({})
 const {rows,missing,busy:translationBusy,error:translationError,complete}=useLessonTranslations(toRef(props,"lesson"))
 function selectWord(word:string,index:number){selectedIndex.value=index;selected.value=word}
 const feedbackBusy = ref(false)
+watch([feedbackBusy,translationBusy],()=>emit("busy",feedbackBusy.value||translationBusy.value))
+watch(()=>props.lesson.progress.listening.round,round=>{stage.value=Math.max(0,Math.min(3,(round||1)-1))})
 const { speech, rate, rateError } = useStudySpeech()
 const onlineAvailable = ref(false)
 onMounted(async () => {
@@ -101,9 +110,9 @@ const summary = computed(() => {
 })
 
 function setStage(next: number) {
-  if (feedbackBusy.value) return
+  if (feedbackBusy.value || props.saving || translationBusy.value) return
   stage.value = next
-  revealed.value={}; selected.value=""; selectedIndex.value=-1
+  showReference.value=false; revealed.value={}; selected.value=""; selectedIndex.value=-1
   props.lesson.progress.listening.round = next + 1
   speech.stop()
   emit("save")
@@ -123,17 +132,9 @@ function replay() {
 function playSentence(index: number) {
   void speak(passages.value[index].sentence)
 }
-async function checkRecall() {
-  const result = await api<{ mode: string; note: string }>(`/api/lessons/${props.lesson.id}/recall`, {
-    method: "POST",
-    body: JSON.stringify({ text: props.lesson.progress.listening.recall }),
-  })
-  props.lesson.progress.listening.recallMode = result.mode
-  props.lesson.progress.listening.recallNote = result.note
-  emit("save")
-}
 </script>
 
 <style scoped>
+.listening-next{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin:16px 0}.listening-guide{margin:14px 0}.recall-reference{background:var(--surface-muted);padding:12px;border-radius:12px;line-height:1.6}
 .transcript-sentence{padding:12px 0;border-bottom:1px solid var(--line)}.transcript-sentence .rd-sentence{margin:0 0 10px}
 </style>

@@ -61,7 +61,7 @@ async function verify(engine, name, viewport, mode) {
     newWordCount: 2, estimatedMinutes: 60, source: "offline", sourceLabel: "测试课程", poolNote: "",
     progress: { step: "review", completed: [], wordIndex: 0, listening: { round: 1, firstGist: "", thirdGist: "", recall: "", recallNote: "", recallMode: "" }, shadow: { index: 0, marks: [] } },
     listening: { title: "A morning at work", text: "She politely refused his offer. We schedule a meeting.", chunks: ["She politely refused his offer.", "We schedule a meeting."], gloss: {}, translations:[{index:0,sentence:"She politely refused his offer.",translation:"她礼貌地拒绝了他的提议。"}] },
-    words: [politely, schedule], questions: [],
+    words: [structuredClone(politely),structuredClone(schedule)], questions: [{id:"fixture-quiz",kind:"context",prompt:"What does politely mean?",options:["In a respectful way","Very loudly","Tomorrow"],answered:false,selected:null,correct:null,answerIndex:null,explanationEn:null,explanationZh:null,evidence:null,whyWrong:null}],
   };
   const settings = { colorMode: mode, speechRate: 1.2, wordPartsEnabled: true };
   await page.route("**/*", async route => {
@@ -117,6 +117,7 @@ async function verify(engine, name, viewport, mode) {
       attempts += 1;
       if (attempts === 1) return json({ error: "测试：评分未保存" }, 503);
       reviews = reviews.filter(word => !p.includes(word.id));
+      for(const word of lesson.words)if(p.includes(word.id)){word.reps++;word.lastReview=new Date().toISOString();}
       return json({ ok: true, due: "2026-11-26T00:00:00.000Z" });
     }
     if (p === "/api/preview/explain" && method === "GET") {
@@ -124,6 +125,7 @@ async function verify(engine, name, viewport, mode) {
         ? { analysis: fixtureAnalysis, source: "cache" } : { source: "miss" });
     }
     if (p === "/api/preview/explain" && method === "POST") { explainPosts++; return json({ error: "No paid calls in UI test" }, 403); }
+    if(p==="/api/quiz/fixture-quiz/answer" && method==="POST"){const q=lesson.questions[0];Object.assign(q,{answered:true,selected:route.request().postDataJSON().selected,correct:true,answerIndex:0,explanationEn:"It describes a respectful manner.",explanationZh:"它描述礼貌的方式。",evidence:"She politely refused his offer.",whyWrong:["","Not loudness.","Not time."]});return json({ok:true});}
     if (p === "/api/sessions") return json({ ok: true });
     unexpected.push(method + " " + p);
     return json({ error: "Unhandled fixture endpoint" }, 404);
@@ -150,6 +152,8 @@ async function verify(engine, name, viewport, mode) {
     assert.ok(requestIds[0] && requestIds[0] === requestIds[1], "Failed same-payload retry should keep request ID");
     assert.equal(await card.getByRole("group", { name: "记忆评分" }).count(), 0, "New word must hide answer");
     await page.getByRole("button", { name: "3 词根", exact: true }).click();
+    await page.locator(".parts-study").waitFor();
+    assert.deepEqual(lesson.progress.completed,[], "Free navigation cannot mark a stage completed");
     const parts = page.locator(".parts-study");
     await parts.getByRole("heading", { name: "词源与构词" }).waitFor();
     await parts.getByText("测试原始画面", { exact: true }).waitFor();
@@ -224,6 +228,33 @@ async function verify(engine, name, viewport, mode) {
     assert.equal(translationPosts,1);
     await page.screenshot({path:output+"/"+name+"-context-translations.png",fullPage:true});
     await page.goto(origin+"/lesson/fixture-lesson");
+    // Complete each stage through its own explicit continuation, not through tab visits.
+    await page.getByRole("button",{name:"1 复习",exact:true}).click();
+    await card.getByRole("heading",{name:"schedule",exact:true}).waitFor();
+    await card.getByRole("button",{name:"显示答案",exact:true}).click();
+    await card.getByRole("button",{name:/记得/}).click();
+    await page.getByRole("button",{name:"开始新词",exact:true}).click();
+    await page.getByRole("button",{name:"下一个",exact:true}).click();
+    await page.getByRole("button",{name:"完成新词，继续 →",exact:true}).click();
+    await parts.getByRole("button",{name:"进入听力",exact:true}).click();
+    await page.getByRole("button",{name:"原文已读，开始再听 →",exact:true}).click();
+    await page.getByRole("button",{name:"再听结束，尝试回忆 →",exact:true}).click();
+    await page.getByPlaceholder("Retell the passage in English…").fill("She refused the offer. We arranged a meeting.");
+    await page.getByRole("button",{name:"保存英文回忆，进入跟读 →",exact:true}).click();
+    await page.locator(".shadow-study").getByRole("button",{name:"跟上了",exact:true}).click();
+    await page.locator(".shadow-study").getByText("第 2 / 2 句",{exact:true}).waitFor();
+    await page.locator(".shadow-study").getByRole("button",{name:"没跟上",exact:true}).click();
+    await page.getByRole("button",{name:"去做回忆和测验",exact:true}).click();
+    await card.getByRole("heading",{name:"politely",exact:true}).waitFor();
+    await card.getByRole("button",{name:"显示答案",exact:true}).click();
+    await card.getByRole("button",{name:/记得/}).click();
+    await page.getByRole("button",{name:"In a respectful way",exact:true}).click();
+    await page.getByRole("button",{name:"完成本课回忆",exact:true}).click();
+    await page.getByRole("heading",{name:"本课学习完成",exact:true}).waitFor();
+    assert.equal(new Set(lesson.progress.completed).size,6);
+    await page.reload();
+    await page.getByRole("heading",{name:"本课学习完成",exact:true}).waitFor();
+    await page.screenshot({path:output+"/"+name+"-course-complete.png",fullPage:true});
     const generate = page.getByRole("button", { name: "重新生成课程", exact: true });
     await generate.click();
     const busy = page.getByRole("button", { name: "正在生成…", exact: true });

@@ -1,6 +1,7 @@
 <template>
   <div class="stack" style="margin-top: 16px">
-    <h3>今天的 3 道题</h3>
+    <h3>本课测验 · {{ lesson.questions.filter(q=>q.answered).length }} / {{ lesson.questions.length }}</h3>
+    <p v-if="answerError" class="bad" role="alert">{{ answerError }}</p>
     <article v-for="question in lesson.questions" :key="question.id" class="card">
       <p>{{ kindLabel(question.kind) }}</p>
       <p>{{ question.prompt }}</p>
@@ -10,7 +11,7 @@
           :key="option"
           class="choice"
           :class="{ active: question.selected === index }"
-          :disabled="question.answered"
+          :disabled="question.answered || answering"
           @click="answer(question.id, index)"
         >
           {{ option }}
@@ -31,7 +32,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, watch } from "vue";
+import { reactive, ref, watch } from "vue";
 import BlurText from "../preview/BlurText.vue";
 import "../preview/reader.css";
 import { api } from "../api";
@@ -40,6 +41,7 @@ import type { Lesson } from "../stores/app";
 const props = defineProps<{ lesson: Lesson }>();
 const emit = defineEmits<{ changed: [] }>();
 const notes = reactive<Record<string, string>>({});
+const answering=ref(false),answerError=ref("");
 const revealed = reactive<Record<string, boolean>>({});
 watch(() => props.lesson.id, () => { for (const key of Object.keys(revealed)) delete revealed[key]; });
 
@@ -50,8 +52,11 @@ function kindLabel(kind: string) {
 }
 
 async function answer(id: string, selected: number) {
-  await api(`/api/quiz/${id}/answer`, { method: "POST", body: JSON.stringify({ selected }) });
-  emit("changed");
+  if(answering.value)return;
+  answering.value=true;answerError.value="";
+  try{await api(`/api/quiz/${id}/answer`,{method:"POST",body:JSON.stringify({selected})});emit("changed");}
+  catch(err){answerError.value=err instanceof Error?err.message:"答案未保存，请重试。";}
+  finally{answering.value=false;}
 }
 
 async function simpler(id: string) {
