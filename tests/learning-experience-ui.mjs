@@ -37,6 +37,35 @@ const fixtureAnalysis = {
   examples: [{ text: "She spoke politely.", translation: "她礼貌地说话。", contextNote: "测试例句" }],
 };
 
+// Capture from the top so sticky navigation is not embedded halfway down full-page images.
+async function capture(page,name,section) {
+  await page.evaluate(async()=>{
+    window.scrollTo(0,0);
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+  });
+  await page.screenshot({path:output+"/"+name+"-"+section+".png",fullPage:true});
+}
+async function checkTextContrast(locator, description) {
+  const colors=await locator.evaluate(element=>{
+    const style=getComputedStyle(element);
+    let node=element, bg="rgb(255, 255, 255)";
+    while(node){
+      const color=getComputedStyle(node).backgroundColor;
+      if(color!=="transparent" && color!=="rgba(0, 0, 0, 0)") {bg=color;break;}
+      node=node.parentElement;
+    }
+    return {fg:style.color,bg};
+  });
+  const luminance=color=>{
+    const rgb=color.match(/[\d.]+/g)?.slice(0,3).map(v=>Number(v)/255);
+    assert.equal(rgb?.length,3,"Expected computed RGB color: "+color);
+    const lin=rgb.map(v=>v<=0.04045?v/12.92:((v+0.055)/1.055)**2.4);
+    return 0.2126*lin[0]+0.7152*lin[1]+0.0722*lin[2];
+  };
+  const a=luminance(colors.fg),b=luminance(colors.bg);
+  const ratio=(Math.max(a,b)+0.05)/(Math.min(a,b)+0.05);
+  assert.ok(ratio>=4.5,description+" contrast "+ratio.toFixed(2)+" "+JSON.stringify(colors));
+}
 async function verify(engine, name, viewport, mode) {
   const browser = await engine.launch();
   const context = await browser.newContext({ viewport, colorScheme: mode, reducedMotion: "reduce", serviceWorkers: "block" });
@@ -158,7 +187,7 @@ async function verify(engine, name, viewport, mode) {
     await card.getByRole("button", { name: "隐藏翻译", exact: true }).click();
     assert.match(await translation.getAttribute("class"), /is-blurred/);
     await card.getByText("10 分钟", { exact: true }).waitFor();
-    await page.screenshot({ path: output + "/" + name + "-review.png", fullPage: true });
+    await capture(page,name,"review");
     await card.getByRole("button", { name: /记得/ }).click();
     await card.getByRole("alert").getByText("测试：评分未保存").waitFor();
     await card.getByRole("heading", { name: "promise", exact: true }).waitFor();
@@ -174,7 +203,9 @@ async function verify(engine, name, viewport, mode) {
     await parts.getByText("测试原始画面", { exact: true }).waitFor();
     assert.equal(explainPosts, 0, "Existing cached explanation must not request a model");
     assert.equal(await parts.getByRole("button", { name: "我已认识" }).count(), 0, "Parts page must not show non-wired marks");
-    await page.screenshot({ path: output + "/" + name + "-parts.png", fullPage: true });
+    await checkTextContrast(parts.locator(".rd-copy").first(),"Word formation body text");
+    await checkTextContrast(parts.locator(".rd-kicker").first(),"Word formation caption");
+    await capture(page,name,"parts");
     const dimensions = await page.evaluate(() => ({ width: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
     assert.ok(dimensions.scroll <= dimensions.width + 2, "Unexpected horizontal overflow: " + JSON.stringify(dimensions));
     await page.getByRole("button", { name: "5 跟读", exact: true }).click();
@@ -216,7 +247,7 @@ async function verify(engine, name, viewport, mode) {
     assert.equal(await firstFeedback.locator(".rd-trans-text.is-blurred").count(), 0);
     assert.equal(await gist.locator(".rd-trans-text.is-blurred").count(), 2);
     await firstFeedback.getByRole("button", { name: "隐藏翻译" }).click();
-    await page.screenshot({ path: output + "/" + name + "-listening-feedback.png", fullPage: true });
+    await capture(page,name,"listening-feedback");
     await page.reload();
     await gist.getByRole("heading", { name: "You understood the main idea" }).waitFor();
     assert.equal(await answer.inputValue(), gistAnswer);
@@ -241,7 +272,8 @@ async function verify(engine, name, viewport, mode) {
     await reading.locator(".rd-trans-text.is-blurred").waitFor();
     assert.equal(await reading.locator(".rd-trans-text").textContent(),"我们安排一场会议。");
     assert.equal(translationPosts,1);
-    await page.screenshot({path:output+"/"+name+"-context-translations.png",fullPage:true});
+    await checkTextContrast(reading.locator(".rd-token").first(),"Context reading word");
+    await capture(page,name,"context-translations");
     await page.goto(origin+"/lesson/fixture-lesson");
     // Complete each stage through its own explicit continuation, not through tab visits.
     await page.getByRole("button",{name:"1 复习",exact:true}).click();
@@ -287,7 +319,7 @@ async function verify(engine, name, viewport, mode) {
     assert.equal(new Set(lesson.progress.completed).size,6);
     await page.reload();
     await page.getByRole("heading",{name:"本课学习完成",exact:true}).waitFor();
-    await page.screenshot({path:output+"/"+name+"-course-complete.png",fullPage:true});
+    await capture(page,name,"course-complete");
     const generate = page.getByRole("button", { name: "重新生成课程", exact: true });
     await generate.click();
     const busy = page.getByRole("button", { name: "正在生成…", exact: true });
