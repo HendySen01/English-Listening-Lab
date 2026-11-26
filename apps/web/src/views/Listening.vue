@@ -1,5 +1,5 @@
 <template>
-  <LessonListening v-if="lesson" :lesson="lesson" @save="save" />
+  <LessonListening v-if="lesson" :key="lesson.id" :lesson="lesson" @save="save" />
   <p v-else-if="error" class="bad">{{ error }}</p>
   <p v-else>正在准备听力……</p>
 </template>

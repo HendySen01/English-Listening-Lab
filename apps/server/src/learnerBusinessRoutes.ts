@@ -4,6 +4,7 @@ import express from "express";
 import { isTrustedRequestOrigin } from "./auth.js";
 import { AppError } from "./errors.js";
 import { cachedOwnedExplanation, explainOwnedPassage } from "./learnerExplanation.js";
+import { readListeningFeedback, submitListeningFeedback } from "./learnerListeningFeedback.js";
 import {
   activateOwnLesson,
   addOwnSession,
@@ -138,6 +139,8 @@ export function mountLearnerBusinessRoutes(app: express.Express) {
   route("get", "/api/lessons", async (req) => ownLessons(await learnerOf(req)));
   route("get", "/api/lessons/:id", async (req) => ownLesson(await learnerOf(req), routeId(req.params.id)));
   route("patch", "/api/lessons/:id/progress", async (req) => saveOwnLessonProgress(await learnerOf(req), routeId(req.params.id), req.body?.progress));
+  route("get", "/api/lessons/:id/listening-feedback", async (req) => readListeningFeedback(await learnerOf(req), routeId(req.params.id)));
+  route("post", "/api/lessons/:id/listening-feedback", async (req) => submitListeningFeedback(await learnerOf(req), routeId(req.params.id), req.body?.answer, req.body?.confirmCost));
   route("post", "/api/lessons/:id/recall", async (req) => recallOwnLesson(await learnerOf(req), routeId(req.params.id), String(req.body?.text || "")));
   route("post", "/api/vocabulary/:id/known", async (req) => rateOwnWord(await learnerOf(req), routeId(req.params.id), "easy", "recall", req.body?.clientRequestId, req.body?.progress, true));
   route("post", "/api/vocabulary/:id/easier", async (req) => easierOwnExample(await learnerOf(req), routeId(req.params.id), req.body?.clientRequestId, req.body?.inputTokens));

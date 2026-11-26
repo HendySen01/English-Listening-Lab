@@ -45,7 +45,7 @@
 
     <LessonParts v-else-if="progress.step === 'parts'" :words="parts" :lesson-id="lesson.id" @next="go('listening')" />
 
-    <LessonListening v-else-if="progress.step === 'listening'" :lesson="lesson" @save="save" />
+    <LessonListening v-else-if="progress.step === 'listening'" :key="lesson.id" :lesson="lesson" @save="save" />
     <ShadowPanel v-else-if="progress.step === 'shadow'" :lesson="lesson" @save="save" />
 
     <article class="card" v-else-if="progress.step === 'recall'">

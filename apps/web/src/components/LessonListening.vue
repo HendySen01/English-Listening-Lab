@@ -3,7 +3,7 @@
     <p class="rd-kicker">{{ lesson.sourceLabel }} · {{ lesson.listening.title }}</p>
     <div class="rd-stages">
       <div class="rd-segment" role="tablist" aria-label="听力阶段">
-        <button v-for="(label, stageIndex) in stages" :key="label" class="rd-pill" type="button" :aria-pressed="stage === stageIndex" @click="setStage(stageIndex)">{{ label }}</button>
+        <button v-for="(label, stageIndex) in stages" :key="label" class="rd-pill" type="button" :aria-pressed="stage === stageIndex" :disabled="feedbackBusy" @click="setStage(stageIndex)">{{ label }}</button>
       </div>
     </div>
     <div class="rd-tools" style="margin-bottom: 12px">
@@ -14,9 +14,7 @@
       <span class="rd-source" role="status">{{ speech.sourceLabel.value }} · {{ speech.status.value }}<template v-if="speech.detail.value"> · {{ speech.detail.value }}</template></span>
     </div>
     <p v-if="rateError" class="rd-note" role="status">{{ rateError }}</p>
-    <label v-if="stage === 0" class="rd-note">这段话大概在说什么？
-      <textarea v-model="lesson.progress.listening.firstGist" class="rd-field" rows="3" placeholder="用简体中文写一句大意" @change="emit('save')"></textarea>
-    </label>
+    <ListeningGist v-if="stage === 0" :key="lesson.id" :lesson-id="lesson.id" :initial-answer="lesson.progress.listening.firstGist" @saved="lesson.progress.listening.firstGist = $event" @busy="feedbackBusy = $event" @next="setStage(1)" />
     <ExpandFold :open="stage === 1 || stage === 2" :limit="false">
       <div class="rd-frame rd-workspace">
         <div class="rd-read">
@@ -46,6 +44,7 @@
 
 <script setup lang="ts">
 import SpeechRateControl from "./SpeechRateControl.vue"
+import ListeningGist from "./ListeningGist.vue"
 import { computed, onMounted, ref } from "vue"
 import { Volume2 } from "lucide-vue-next"
 import ExpandFold from "../preview/ExpandFold.vue"
@@ -63,6 +62,7 @@ const emit = defineEmits<{ save: [progress?: Progress] }>()
 const stages = ["1 盲听", "2 原文", "3 再听", "4 回忆"]
 const stage = ref(Math.max(0, Math.min(3, (props.lesson.progress.listening.round || 1) - 1)))
 const selected = ref("")
+const feedbackBusy = ref(false)
 const { speech, rate, rateError } = useStudySpeech()
 const onlineAvailable = ref(false)
 onMounted(async () => {
@@ -96,6 +96,7 @@ const summary = computed(() => {
 })
 
 function setStage(next: number) {
+  if (feedbackBusy.value) return
   stage.value = next
   props.lesson.progress.listening.round = next + 1
   speech.stop()
