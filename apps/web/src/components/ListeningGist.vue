@@ -3,9 +3,9 @@
     <header class="gist-head"><div><p class="rd-kicker">FIRST LISTEN · ACTIVE OUTPUT</p><h3 id="gist-title">What did you hear?</h3></div><span class="rd-note">01 / 04</span></header>
     <p class="rd-note">先听完整段音频，再用自己的英语概括大意。不需要逐字复述。</p>
     <label for="listening-gist-answer" class="gist-label">Your summary</label>
-    <textarea id="listening-gist-answer" v-model="draft" class="rd-field" lang="en" rows="4" maxlength="1800" :disabled="busy || restoring" placeholder="Write one or two sentences in English…" />
+    <textarea id="listening-gist-answer" v-model="draft" class="rd-field" lang="en" rows="4" maxlength="1800" :disabled="busy || restoring || saving" placeholder="Write one or two sentences in English…" />
     <div class="gist-actions">
-      <button class="rd-pill primary" type="button" :disabled="busy || restoring || !draft.trim() || Boolean(currentFeedback)" @click="submit">{{ busy ? "正在批改…" : currentFeedback ? "已完成批改" : "提交 AI 批改" }}</button>
+      <button class="rd-pill primary" type="button" :disabled="busy || restoring || saving || !draft.trim() || Boolean(currentFeedback)" @click="submit">{{ busy ? "正在批改…" : currentFeedback ? "已完成批改" : "提交 AI 批改" }}</button>
       <span class="rd-note">新答案使用一次 AI 额度；相同答案复用已有结果。</span>
     </div>
     <p v-if="error" class="bad" role="alert">{{ error }}</p>
@@ -19,7 +19,7 @@
       </article>
       <details class="gist-evidence"><summary>Check the evidence · 对照原文依据</summary><p v-for="quote in currentFeedback.evidence" :key="quote" lang="en" translate="no">{{ quote }}</p></details>
     </section>
-    <footer class="gist-footer"><button class="rd-pill" type="button" :disabled="busy" @click="advance">{{ currentFeedback ? "对照原文 →" : "暂不批改，查看原文 →" }}</button></footer>
+    <footer class="gist-footer"><button class="rd-pill" type="button" :disabled="busy || restoring || saving" @click="advance">{{ currentFeedback ? "对照原文 →" : "暂不批改，查看原文 →" }}</button></footer>
   </section>
 </template>
 <script setup lang="ts">
@@ -29,7 +29,7 @@ import BlurText from "../preview/BlurText.vue";
 type Pair = { en: string; zh: string };
 type Feedback = { understanding: "accurate"|"partial"|"misunderstood"|"unclear"; comprehension: Pair; language: Pair; naturalVersion: Pair; evidence: string[] };
 type Result = { answer: string; feedback: Feedback | null; source: string; model?: string | null };
-const props = defineProps<{ lessonId: string; initialAnswer: string }>();
+const props = defineProps<{ lessonId: string; initialAnswer: string; saving?: boolean }>();
 const emit = defineEmits<{ saved: [answer: string]; next: []; busy: [value: boolean] }>();
 const draft = ref(props.initialAnswer || ""), saved = ref<Result|null>(null), busy = ref(false), restoring = ref(false), error = ref("");
 const resultSource = computed(() => saved.value?.source);
@@ -49,9 +49,9 @@ onMounted(async()=>{
   } catch { error.value = "暂时无法读取已保存的批改。你仍可以继续练习或重新提交。"; }
   finally { restoring.value=false; }
 });
-function advance(){ emit("saved",draft.value.trim()); emit("next"); }
+function advance(){ if(busy.value || restoring.value || props.saving)return; emit("saved",draft.value.trim()); emit("next"); }
 async function submit(){
-  if(busy.value || restoring.value || !draft.value.trim() || currentFeedback.value)return;
+  if(busy.value || restoring.value || props.saving || !draft.value.trim() || currentFeedback.value)return;
   busy.value=true;emit("busy",true);error.value="";revealed.value={};
   const answer=draft.value.trim();
   emit("saved",answer);

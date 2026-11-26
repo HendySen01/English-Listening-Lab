@@ -14,9 +14,9 @@
       <span class="rd-source" role="status">{{ speech.sourceLabel.value }} · {{ speech.status.value }}<template v-if="speech.detail.value"> · {{ speech.detail.value }}</template></span>
     </div>
     <p v-if="rateError" class="rd-note" role="status">{{ rateError }}</p>
-    <ListeningGist v-if="stage === 0" :key="lesson.id" :lesson-id="lesson.id" :initial-answer="lesson.progress.listening.firstGist" @saved="lesson.progress.listening.firstGist = $event" @busy="feedbackBusy = $event" @next="setStage(1)" />
+    <ListeningGist v-if="stage === 0" :key="lesson.id" :lesson-id="lesson.id" :initial-answer="lesson.progress.listening.firstGist" :saving="saving" @saved="lesson.progress.listening.firstGist = $event" @busy="feedbackBusy = $event" @next="setStage(1)" />
     <div v-if="stage === 1 || stage === 2" class="rd-note listening-guide">{{ stage === 1 ? "对照原文，点击不熟悉的词；中文仅在需要时查看。" : "再听一遍，留意刚才没听出来的表达。可按需对照原文。" }}</div>
-    <ExpandFold :open="stage === 1 || stage === 2" :limit="false">
+    <template v-if="stage === 1 || stage === 2">
       <div class="rd-frame rd-workspace">
         <div class="rd-read">
           <div v-for="(item, sentenceIndex) in passages" :key="item.id" class="transcript-sentence">
@@ -33,22 +33,22 @@
         </div>
         <ReaderNotes column-scroll :key="selected" :word="selected" :analysis="analysis" :summary="summary" :source="source" :loading="loading" :error="error" mark="" @speak="(text) => speak(text)" @explain="explain" />
       </div>
-    </ExpandFold>
+    </template>
     <div v-if="stage === 1 || stage === 2" class="listening-next">
       <router-link v-if="stage===1" class="rd-pill" :to="{path:'/context',query:{lesson:lesson.id,from:lesson.progress.step==='listening'?'listening':'standalone-listening'}}">逐句语境阅读</router-link>
       <button class="rd-pill primary" :disabled="saving || translationBusy" @click="setStage(stage+1)">{{ stage===1 ? "原文已读，开始再听 →" : "再听结束，尝试回忆 →" }}</button>
     </div>
-    <ExpandFold :open="stage === 3" :limit="false">
+    <template v-if="stage === 3">
       <div class="rd-box">
         <p class="rd-copy">Without looking at the transcript, retell the main idea in your own words.</p>
         <p class="rd-note">试着用英文复述。此处保存自己的练习，不把关键词检查当成 AI 评分。</p>
-        <textarea v-model="lesson.progress.listening.recall" class="rd-field" rows="4" lang="en" placeholder="Retell the passage in English…"></textarea>
+        <textarea v-model="lesson.progress.listening.recall" class="rd-field" rows="4" lang="en" :disabled="saving" placeholder="Retell the passage in English…"></textarea>
         <button class="rd-pill" style="margin-top: 8px" type="button" :disabled="saving" @click="showReference = !showReference">{{ showReference ? "隐藏原文" : "对照原文" }}</button>
         <div v-if="showReference" class="recall-reference"><p v-for="item in passages" :key="item.id" lang="en" translate="no">{{ item.sentence }}</p></div>
-        <div class="listening-next"><button class="rd-pill primary" :disabled="saving || !lesson.progress.listening.recall.trim()" @click="emit('next')">保存英文回忆，进入跟读 →</button><button class="rd-pill" :disabled="saving" @click="emit('next')">暂时跳过回忆</button></div>
+        <div class="listening-next"><button class="rd-pill primary" :disabled="saving || !String(lesson.progress.listening.recall || '').trim()" @click="emit('next')">保存英文回忆，进入跟读 →</button><button class="rd-pill" :disabled="saving" @click="emit('next')">暂时跳过回忆</button></div>
       </div>
 
-    </ExpandFold>
+    </template>
   </section>
 </template>
 
@@ -60,7 +60,6 @@ import BlurText from "../preview/BlurText.vue"
 import TranslationFill from "./TranslationFill.vue"
 import { useLessonTranslations } from "../composables/useLessonTranslations"
 import { Volume2 } from "lucide-vue-next"
-import ExpandFold from "../preview/ExpandFold.vue"
 import ReaderNotes from "../preview/ReaderNotes.vue"
 import { useExplanation } from "../preview/explain"
 import { tokenize } from "../preview/reader-data"
@@ -73,15 +72,19 @@ const props = defineProps<{ lesson: Lesson; saving?: boolean }>()
 const emit = defineEmits<{ save: [progress?: Progress]; next: []; busy:[value:boolean] }>()
 const showReference=ref(false)
 const stages = ["1 盲听", "2 原文", "3 再听", "4 回忆"]
-const stage = ref(Math.max(0, Math.min(3, (props.lesson.progress.listening.round || 1) - 1)))
+// Render only the last acknowledged stage; an in-flight PATCH cannot expose an editable next stage.
+const stage = computed(() => Math.max(0, Math.min(3, (props.lesson.progress.listening.round || 1) - 1)))
 const selected = ref("")
 const selectedIndex=ref(-1),revealed=ref<Record<number,boolean>>({})
 const {rows,missing,busy:translationBusy,error:translationError,complete}=useLessonTranslations(toRef(props,"lesson"))
 function selectWord(word:string,index:number){selectedIndex.value=index;selected.value=word}
 const feedbackBusy = ref(false)
 watch([feedbackBusy,translationBusy],()=>emit("busy",feedbackBusy.value||translationBusy.value))
-watch(()=>props.lesson.progress.listening.round,round=>{stage.value=Math.max(0,Math.min(3,(round||1)-1))})
 const { speech, rate, rateError } = useStudySpeech()
+watch(stage, () => {
+  showReference.value=false; revealed.value={}; selected.value=""; selectedIndex.value=-1
+  speech.stop()
+})
 const onlineAvailable = ref(false)
 onMounted(async () => {
   const services = await api<{ ttsUsable?: boolean }>("/api/system").catch(() => null)
@@ -110,12 +113,9 @@ const summary = computed(() => {
 })
 
 function setStage(next: number) {
-  if (feedbackBusy.value || props.saving || translationBusy.value) return
-  stage.value = next
-  showReference.value=false; revealed.value={}; selected.value=""; selectedIndex.value=-1
-  props.lesson.progress.listening.round = next + 1
-  speech.stop()
-  emit("save")
+  if (feedbackBusy.value || props.saving || translationBusy.value || next === stage.value) return
+  // Send an immutable next progress value. The parent replaces the lesson only after a successful response.
+  emit("save", { ...props.lesson.progress, listening: { ...props.lesson.progress.listening, round: next + 1 } })
 }
 async function speak(text: string) {
   speech.stop()

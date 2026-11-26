@@ -47,6 +47,8 @@ async function verify(engine, name, viewport, mode) {
   page.on("dialog", async dialog => { dialogs++; await dialog.dismiss(); });
   const requestIds = [];
   let feedbackPosts = 0, savedFeedback = null, translationPosts=0;
+  let roundFourAttempts=0, shadowTransitionAttempts=0;
+  const recallAnswer="She refused the offer. We arranged a meeting.";
   const gistAnswer = "She refuse an offer and we arrange a meeting.";
   const feedback = {
     understanding: "accurate",
@@ -108,7 +110,20 @@ async function verify(engine, name, viewport, mode) {
       return json({ ...savedFeedback, source: "live", charged: true });
     }
     if (p === "/api/lessons/fixture-lesson/progress" && method === "PATCH") {
-      lesson.progress = route.request().postDataJSON().progress; return json(lesson);
+      const next=route.request().postDataJSON().progress;
+      // Reproduce a delayed or failed save on the exact transition that lost the user's input.
+      if(next.step==="listening" && next.listening.round===4 && lesson.progress.listening.round===3){
+        roundFourAttempts++;
+        await new Promise(resolve=>setTimeout(resolve,600));
+        if(roundFourAttempts===1)return json({error:"测试：听力阶段未保存"},503);
+      }
+      if(next.step==="shadow" && lesson.progress.step==="listening"){
+        shadowTransitionAttempts++;
+        assert.equal(next.listening.recall,recallAnswer,"Retelling must survive the progress transition");
+        await new Promise(resolve=>setTimeout(resolve,350));
+        if(shadowTransitionAttempts===1)return json({error:"测试：英文回忆未保存"},503);
+      }
+      lesson.progress = next; return json(lesson);
     }
     if (p === "/api/review" && method === "GET") return json({ items: reviews, dueCount: reviews.length });
     if (p.startsWith("/api/review/") && p.endsWith("/rate")) {
@@ -238,9 +253,27 @@ async function verify(engine, name, viewport, mode) {
     await page.getByRole("button",{name:"完成新词，继续 →",exact:true}).click();
     await parts.getByRole("button",{name:"进入听力",exact:true}).click();
     await page.getByRole("button",{name:"原文已读，开始再听 →",exact:true}).click();
-    await page.getByRole("button",{name:"再听结束，尝试回忆 →",exact:true}).click();
-    await page.getByPlaceholder("Retell the passage in English…").fill("She refused the offer. We arranged a meeting.");
-    await page.getByRole("button",{name:"保存英文回忆，进入跟读 →",exact:true}).click();
+    const advanceRecall=page.getByRole("button",{name:"再听结束，尝试回忆 →",exact:true});
+    const recallInput=page.getByPlaceholder("Retell the passage in English…");
+    const saveRecall=page.getByRole("button",{name:"保存英文回忆，进入跟读 →",exact:true});
+    await advanceRecall.click();
+    assert.equal(await recallInput.count(),0,"Do not mount next-stage input while progress is saving");
+    await page.getByRole("alert").getByText("测试：听力阶段未保存",{exact:true}).waitFor();
+    assert.equal(lesson.progress.listening.round,3);
+    assert.equal(await recallInput.count(),0,"Failed save must not advance");
+    await advanceRecall.click();
+    await recallInput.waitFor();
+    assert.equal(lesson.progress.listening.round,4);
+    await recallInput.fill(recallAnswer);
+    await saveRecall.click();
+    await page.getByRole("alert").getByText("测试：英文回忆未保存",{exact:true}).waitFor();
+    assert.equal(await recallInput.inputValue(),recallAnswer,"Failed save must preserve retelling");
+    assert.equal(lesson.progress.step,"listening");
+    await saveRecall.click();
+    await page.locator(".shadow-study").waitFor();
+    assert.equal(lesson.progress.listening.recall,recallAnswer);
+    assert.equal(roundFourAttempts,2);
+    assert.equal(shadowTransitionAttempts,2);
     await page.locator(".shadow-study").getByRole("button",{name:"跟上了",exact:true}).click();
     await page.locator(".shadow-study").getByText("第 2 / 2 句",{exact:true}).waitFor();
     await page.locator(".shadow-study").getByRole("button",{name:"没跟上",exact:true}).click();
@@ -270,7 +303,7 @@ async function verify(engine, name, viewport, mode) {
     assert.equal(dialogs, 0, "Generation must not open a native confirmation dialog");
     assert.deepEqual(errors, [], "Browser errors");
     assert.deepEqual(unexpected, [], "Unhandled mock requests");
-    console.log(name + ": review, word formation, shared speeds, listening feedback and course generation passed");
+    console.log(name + ": review, word formation, shared speeds, listening feedback, delayed and failed progress saves, six-stage course, and course generation passed");
   } catch (error) {
     await page.screenshot({ path: output + "/" + name + "-failure.png", fullPage: true }).catch(() => {});
     throw error;
