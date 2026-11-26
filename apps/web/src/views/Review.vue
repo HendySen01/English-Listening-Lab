@@ -10,7 +10,7 @@
         <input class="rd-field" v-model="query" placeholder="搜索单词或中文" :disabled="ratingBusy" @input="resetQueue" />
         <button v-for="item in items" :key="item.id" class="lib-row" type="button" :aria-pressed="current?.id === item.id" :disabled="ratingBusy" @click="open(item)">
           <strong translate="no">{{ item.lemma }}</strong>
-          <span>{{ familiarityLabel(item.familiarity) }} · {{ remain(item.due) }}</span>
+          <span>{{ reviewStateLabel(item.state) }} · {{ remain(item.due) }}</span>
         </button>
         <p v-if="!items.length" class="rd-note">这个筛选下没有词。</p>
       </div>
@@ -19,6 +19,8 @@
         <p class="rd-kicker">先回忆，再看答案</p>
         <h2 class="rd-word" translate="no">{{ current.lemma }}</h2>
         <p class="rd-meta">{{ current.pos }} <span v-if="current.ipa" translate="no">{{ current.ipa }}</span></p>
+        <p class="rd-note">{{ reviewStateLabel(current.state) }} · 正式复习 {{ current.reps ?? 0 }} 次 · 上次评分：{{ familiarityLabel(current.familiarity) }}</p>
+        <p v-if="filter==='soon' && new Date(current.due)<=now" class="rd-note" role="status">此词已到期，已移出即将到期列表。可以继续当前卡片。</p>
         <p class="rd-copy">上次复习：{{ formatWhen(current.lastReview) }}</p>
         <p class="rd-copy">下次复习：{{ formatWhen(current.due) }} · {{ remain(current.due) }}</p>
         <div class="recall-panel">
@@ -36,6 +38,8 @@
         <div class="grade-grid" role="group" aria-label="记忆评分">
           <button v-for="grade in grades" :key="grade.id" class="rd-pill rate" :class="'rate-'+grade.id" type="button" :disabled="ratingBusy || !revealed" @click="submit(grade.id)">{{ grade.label }}<span v-if="formal"> · {{ intervalLabel(current, grade.id) }}</span></button>
         </div>
+        <p v-if="formal && intervalLabel(current,'good')===intervalLabel(current,'easy')" class="rd-note">下次时间相同不代表记忆状态相同，请按实际掌握程度评分。</p>
+        <ReviewHistory v-if="historySupported" :key="current.id + ':' + current.reps + ':' + current.lastReview" :word-id="current.id" />
       </aside>
       <aside v-else-if="completed.size && queueFinished" class="rd-notes" role="status">
         <h2>本轮复习完成</h2>
@@ -50,7 +54,8 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from "vue";
 import BlurText from "../preview/BlurText.vue";
-import { grades, intervalLabel } from "../lib/reviewPresentation";
+import ReviewHistory from "../components/ReviewHistory.vue";
+import { grades, intervalLabel, reviewStateLabel } from "../lib/reviewPresentation";
 import { useRoute } from "vue-router";
 import { api } from "../api";
 import { formatDue, formatWhen } from "../lib/due";
@@ -78,6 +83,9 @@ const missing = ref("");
 const revealed = ref(false);
 const translation = ref(false);
 const loaded = ref(false);
+const historySupported=ref(false);
+let timedRefresh=false;
+let mounted=true;
 const completed = ref(new Set<string>());
 const queueFinished = ref(false);
 let loadVersion = 0;
@@ -103,9 +111,10 @@ function open(item: any) {
 }
 async function load() {
   const version = ++loadVersion;
-  const data = await api<{ items: any[] }>(`/api/review?filter=${filter.value}&q=${encodeURIComponent(query.value)}&focus=${encodeURIComponent(String(route.query.focus || ""))}`);
-  if (version !== loadVersion) return false;
+  const data = await api<{ items: any[]; historySupported?:boolean }>(`/api/review?filter=${filter.value}&q=${encodeURIComponent(query.value)}&focus=${encodeURIComponent(String(route.query.focus || ""))}`);
+  if (version !== loadVersion || !mounted) return false;
   items.value = data.items;
+  historySupported.value=data.historySupported===true;
   return true;
 }
 async function resetQueue() {
@@ -114,7 +123,10 @@ async function resetQueue() {
   try {
     if (!await load()) return;
     const selected = items.value.find((item) => item.id === current.value?.id);
-    if (selected) current.value = selected;
+    if (selected) {
+      if(JSON.stringify(progressStamp(selected))!==JSON.stringify(progressStamp(current.value)))open(selected);
+      else current.value=selected;
+    }
     else if (!narrow.value && items.value[0]) open(items.value[0]);
     else current.value = null;
   } catch (error) {
@@ -129,6 +141,8 @@ async function submit(rating: string) {
     missing.value = "先显示答案，再评分。";
     return;
   }
+  // Invalidate an earlier background queue request before writing a rating.
+  ++loadVersion;
   const card = current.value;
   const isFormal = formal.value;
   ratingBusy.value = true;
@@ -166,6 +180,33 @@ async function submit(rating: string) {
     ratingBusy.value = false;
   }
 }
+async function refreshTimedQueue(){
+  now.value=new Date();
+  if(!loaded.value || ratingBusy.value || timedRefresh || !["due","soon"].includes(filter.value))return;
+  timedRefresh=true;
+  try{
+    if(!await load() || ratingBusy.value || !mounted)return;
+    const selected=items.value.find(item=>item.id===current.value?.id);
+    if(selected && current.value){
+      // Never replace an open answer unless the server reports a different progress version.
+      if(JSON.stringify(progressStamp(selected))!==JSON.stringify(progressStamp(current.value))){
+        open(selected);feedback.value="复习进度已更新，请重新查看答案。";
+      }else current.value=selected;
+    }else if(current.value){
+      // The active upcoming card may cross its due boundary. Keep the open card and input;
+      // the list itself follows the server's due/soon filter.
+      if(!(filter.value==="soon" && new Date(current.value.due)<=now.value)){
+        if(!narrow.value && items.value.length)open(items.value[0]);
+        else current.value=null;
+      }
+    }else if(items.value.length){
+      if(queueFinished.value){completed.value.clear();queueFinished.value=false;}
+      if(!narrow.value)open(items.value[0]);
+    }
+  }catch{/* Keep the current answer and queue on a transient refresh error. */}
+  finally{timedRefresh=false;}
+}
+function onVisible(){if(document.visibilityState==="visible")void refreshTimedQueue();}
 async function selectTarget() {
   const focus = String(route.query.focus || "");
   if (focus) {
@@ -183,11 +224,14 @@ async function selectTarget() {
 watch(() => [route.query.focus, route.query.practice], () => { void selectTarget(); });
 onMounted(async () => {
   await selectTarget();
-  timer = window.setInterval(() => { now.value = new Date(); }, 30000);
+  timer = window.setInterval(() => { void refreshTimedQueue(); }, 30000);
+  document.addEventListener("visibilitychange",onVisible);
   window.addEventListener("resize", resize);
 });
 function resize() { narrow.value = window.matchMedia("(max-width: 900px)").matches; }
 onUnmounted(() => {
+  mounted=false;++loadVersion;
+  document.removeEventListener("visibilitychange",onVisible);
   window.clearInterval(timer);
   window.removeEventListener("resize", resize);
 });

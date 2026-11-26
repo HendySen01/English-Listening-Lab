@@ -73,6 +73,7 @@ async function verify(engine, name, viewport, mode) {
   const errors = [], unexpected = [];
   page.on("pageerror", error => errors.push(error.message));
   let reviews = [promise, schedule], attempts = 0, explainPosts = 0, generations = 0, dialogs = 0;
+  let historyReads=0,reviewQueueReads=0;
   page.on("dialog", async dialog => { dialogs++; await dialog.dismiss(); });
   const requestIds = [];
   let feedbackPosts = 0, savedFeedback = null, translationPosts=0;
@@ -154,7 +155,14 @@ async function verify(engine, name, viewport, mode) {
       }
       lesson.progress = next; return json(lesson);
     }
-    if (p === "/api/review" && method === "GET") return json({ items: reviews, dueCount: reviews.length });
+    if (p === "/api/review" && method === "GET") {
+      reviewQueueReads++;
+      return json({ items:reviews.filter(word=>url.searchParams.get("filter")==="soon"?new Date(word.due)>new Date():url.searchParams.get("filter")==="due"?new Date(word.due)<=new Date():true), dueCount:reviews.length,historySupported:true });
+    }
+    if (p==="/api/review/fixture-schedule/history" && method==="GET") {
+      historyReads++;
+      return json({events:[{id:"history-fixture",rating:"good",createdAt:"2026-11-25T03:00:00Z",dueAfter:"2026-11-26T04:00:00Z"}]});
+    }
     if (p.startsWith("/api/review/") && p.endsWith("/rate")) {
       const body = route.request().postDataJSON();
       requestIds.push(body.clientRequestId);
@@ -333,6 +341,33 @@ async function verify(engine, name, viewport, mode) {
     await page.getByRole("heading", { name: "A new fixture course", exact: true }).waitFor();
     assert.equal(generations, 2);
     assert.equal(dialogs, 0, "Generation must not open a native confirmation dialog");
+    const dueWord={...schedule,state:2,reps:2,due:new Date(Date.now()+10*60000).toISOString(),intervalMinutes:{again:1,hard:6,good:1440,easy:1500}};
+    reviews=[dueWord];
+    await page.goto(origin+"/review");
+    await page.getByRole("button",{name:"即将到期",exact:true}).click();
+    await page.locator(".lib-row").filter({hasText:"schedule"}).click();
+    await page.getByText("长期复习 · 正式复习 2 次",{exact:false}).waitFor();
+    await page.locator(".review-history summary").click();
+    await page.locator(".history-events").getByText("1 天 1 小时",{exact:true}).waitFor();
+    assert.equal(historyReads,1);
+    await page.getByRole("button",{name:"显示答案",exact:true}).click();
+    await page.locator(".formal-check input").check();
+    await page.getByRole("button",{name:"记得 · 1 天",exact:true}).waitFor();
+    await page.getByRole("button",{name:"非常熟悉 · 1 天 1 小时",exact:true}).waitFor();
+    // Server moves the card across its due boundary. Refresh without a write or resetting the open answer.
+    await page.clock.install({time:new Date(Date.now()+11*60000)});
+    dueWord.due=new Date(Date.now()-60000).toISOString();
+    const beforeRefresh=reviewQueueReads;
+    await page.evaluate(()=>document.dispatchEvent(new Event("visibilitychange")));
+    await page.waitForFunction(()=>document.querySelectorAll(".lib-row").length===0);
+    assert.ok(reviewQueueReads>beforeRefresh);
+    await page.getByText("安排",{exact:true}).waitFor();
+    assert.equal(historyReads,1);
+    const back=page.getByRole("button",{name:"返回列表",exact:true});
+    if(await back.isVisible())await back.click();
+    await page.getByRole("button",{name:"已到期",exact:true}).click();
+    await page.locator(".lib-row").filter({hasText:"schedule"}).waitFor();
+    await capture(page,name,"review-history");
     assert.deepEqual(errors, [], "Browser errors");
     assert.deepEqual(unexpected, [], "Unhandled mock requests");
     console.log(name + ": review, word formation, shared speeds, listening feedback, delayed and failed progress saves, six-stage course, and course generation passed");

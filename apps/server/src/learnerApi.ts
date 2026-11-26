@@ -721,6 +721,7 @@ export async function ownReviewQueue(learner: VerifiedLearner, now = new Date(),
     return true;
   });
   return {
+    historySupported: true,
     dueCount: rows.filter((row) => row.due <= now && !row.vocabulary.knownAlready).length,
     items: matched.map((row) => {
       const contexts = related.get(row.vocabularyId)!;
@@ -750,6 +751,18 @@ export async function ownReviewQueue(learner: VerifiedLearner, now = new Date(),
       };
     }),
   };
+}
+
+// Read-only history for the selected sense group; never merge conflicting histories or other learners.
+export async function ownReviewHistory(learner: VerifiedLearner, vocabularyId: string) {
+  const rows=await reviewRows(db(),learner.learnerId);
+  const group=reviewGroups(rows).find(items=>items.some(row=>row.vocabularyId===vocabularyId));
+  if(!group)throw new AppError(404,"NOT_FOUND","找不到资源");
+  return {events:await db().reviewEvent.findMany({
+    where:{userId:learner.learnerId,vocabularyId:{in:group.map(row=>row.vocabularyId)},mode:"formal",changedSchedule:true},
+    select:{id:true,rating:true,createdAt:true,dueAfter:true},
+    orderBy:[{createdAt:"desc"},{id:"desc"}],take:20,
+  })};
 }
 
 export async function easierOwnExample(learner: VerifiedLearner, vocabularyId: string, clientRequestId?: unknown, inputTokens?: unknown) {

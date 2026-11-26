@@ -40,6 +40,8 @@ jobs:
           status=$?
           cat ui-results/typescript.log
           echo "TypeScript exit status: $status (diagnostic only; not Vue SFC typecheck)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Verify FSRS progression and interval labels
+        run: ./node_modules/.bin/tsx tests/fsrs-schedule.mts
       - name: Test listening feedback with isolated SQLite and intercepted provider
         env:
           USER_DATABASE_URL: file:${{ github.workspace }}/data/user-runtime-listening-ci.db

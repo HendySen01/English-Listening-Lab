@@ -5,6 +5,7 @@
       <p class="rd-note">{{ activeOutput ? "先试着用这个词说一句自己的英文，再查看参考答案。" : "先回忆含义，再试着用它说一句话。" }}</p>
       <div class="review-word"><h2 class="rd-word" translate="no">{{ item.lemma }}</h2><button class="rd-icon" type="button" :aria-label="'朗读 '+item.lemma" @click="speak(item.lemma)"><Volume2 :size="20" aria-hidden="true" /></button></div>
       <p class="rd-meta">{{ item.pos }} <span v-if="item.ipa">· {{ item.ipa }}</span></p>
+      <p class="rd-note">{{ reviewStateLabel(item.state) }} · 正式复习 {{ item.reps ?? 0 }} 次</p>
       <button v-if="!show" class="rd-pill primary reveal" type="button" @click="show = true">显示答案</button>
     </div>
     <div v-if="show" class="review-answer">
@@ -17,6 +18,7 @@
         <button v-for="grade in grades" :key="grade.id" class="rd-pill rate grade" :class="'rate-'+grade.id" type="button" :disabled="ratingBusy" @click="rate(grade.id)"><strong>{{ grade.label }}</strong><small>{{ intervalLabel(item, grade.id) }}</small></button>
       </div>
       <p class="rd-note" role="status">{{ ratingBusy ? '正在保存…' : '根据真实记忆程度评分，系统会安排下次复习。' }}</p>
+      <p v-if="intervalLabel(item,'good') === intervalLabel(item,'easy')" class="rd-note">下次时间相同不代表记忆状态相同，请按实际掌握程度评分。</p>
     </div>
     <p v-if="error" class="bad" role="alert">{{ error }}</p>
     <p v-if="speech.detail.value" class="rd-note" role="status">{{ speech.detail.value }}</p>
@@ -29,7 +31,7 @@ import { Volume2 } from "lucide-vue-next";
 import { api } from "../api";
 import { progressStamp, withReviewRequest } from "../lib/reviewRequest";
 import { useStudySpeech } from "../composables/useStudySpeech";
-import { intervalLabel, grades, type Grade } from "../lib/reviewPresentation";
+import { intervalLabel, grades, reviewStateLabel, type Grade } from "../lib/reviewPresentation";
 import BlurText from "../preview/BlurText.vue";
 import "../preview/reader.css";
 const props = defineProps<{ item: any; remaining?: number; activeOutput?: boolean }>();

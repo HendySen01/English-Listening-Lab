@@ -6,7 +6,8 @@ export function formatDue(due: string | Date, now = new Date()) {
   const minutes = Math.max(1, Math.round(abs / 60000));
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
-  if (Math.abs(diff) < 60_000) return "现在可以复习";
+  if (diff <= 0 && diff > -60_000) return "现在可以复习";
+  if (diff > 0 && diff < 60_000) return "不足 1 分钟";
   if (diff < 0) {
     if (days >= 1) return `已逾期 ${days} 天 ${hours % 24} 小时`;
     if (hours >= 1) return `已逾期 ${hours} 小时 ${minutes % 60} 分钟`;

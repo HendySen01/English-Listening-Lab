@@ -4,6 +4,8 @@ import { disconnectUserPrisma } from "../apps/server/src/userDatabase.ts";
 import { readListeningFeedback, submitListeningFeedback } from "../apps/server/src/learnerListeningFeedback.ts";
 import { ownQuota } from "../apps/server/src/learnerQuota.ts";
 import { AppError } from "../apps/server/src/errors.ts";
+import { ownReviewHistory } from "../apps/server/src/learnerApi.ts";
+import { emptyCard } from "../apps/server/src/srs.ts";
 import { completeOwnTranslations } from "../apps/server/src/learnerTranslations.ts";
 import { addTranslations,savedTranslations,validateTranslations,vocabularyGloss } from "../apps/server/src/listeningTranslations.ts";
 import { deepseekLessonRequest } from "../apps/server/src/deepseekLesson.ts";
@@ -130,6 +132,16 @@ try {
   omitTranslations=true;
   await assert.rejects(()=>request.generate(),code("AI_RESPONSE_REJECTED"));
   console.log("Translation service and single-request course contract passed.");
+  const historyTime=new Date("2026-11-27T00:00:00Z"),wordId="fixture-history-word";
+  await db.vocabulary.create({data:{id:wordId,userId:a.learnerId,lemma:"history",pos:"noun",meaningZh:"历史",definitionEn:"past events",ipaNote:"",collocation:"",example:"History matters.",exampleZh:"历史很重要。",difficulty:"B1",theme:"Daily Life",knownAlready:false,exampleFlagged:false,createdAt:historyTime}});
+  await db.wordProgress.create({data:{id:"fixture-history-progress",userId:a.learnerId,vocabularyId:wordId,...emptyCard(historyTime),firstLearnedAt:historyTime,correctCount:0,incorrectCount:0,familiarity:"new",recallAbility:"recall"}});
+  for(const [id,mode,changedSchedule] of [["history-formal","formal",true],["history-practice","practice",false]] as const){
+    await db.reviewEvent.create({data:{id,userId:a.learnerId,vocabularyId:wordId,mode,rating:"good",dueBefore:historyTime,dueAfter:new Date(historyTime.getTime()+86400000),changedSchedule,createdAt:historyTime}});
+  }
+  const history=await ownReviewHistory(a,wordId);
+  assert.deepEqual(history.events.map(row=>row.id),["history-formal"]);
+  await assert.rejects(()=>ownReviewHistory(b,wordId),code("NOT_FOUND"));
+  console.log("Review history ownership and formal-only filter passed.");
   console.log("Listening feedback service: ownership, validation, cache, charges, failure retention and unknown-request protection passed.");
 } finally {
   process.env.AI_REAL_CALLS="0";

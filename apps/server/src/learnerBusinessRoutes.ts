@@ -20,6 +20,7 @@ import {
   ownLibrary,
   ownQuota,
   ownReviewQueue,
+  ownReviewHistory,
   ownSettings,
   ownStats,
   practiceOwnWord,
@@ -153,6 +154,7 @@ export function mountLearnerBusinessRoutes(app: express.Express) {
     String(req.query.q || ""),
     String(req.query.focus || ""),
   ));
+  route("get", "/api/review/:id/history", async (req) => ownReviewHistory(await learnerOf(req),routeId(req.params.id)));
   route("post", "/api/review/:id/practice", async (req) => {
     const learner = await learnerOf(req);
     if (req.body?.formal === true) {
