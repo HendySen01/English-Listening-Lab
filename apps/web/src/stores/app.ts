@@ -18,7 +18,7 @@ export type Lesson = {
   sourceLabel: string;
   poolNote: string;
   progress: Progress;
-  listening: { title: string; text: string; chunks: string[]; gloss: Record<string, string> };
+  listening: { title: string; text: string; chunks: string[]; gloss: Record<string, string>; translations?: Array<{index:number;sentence:string;translation:string}> };
   words: Word[];
   questions: Question[];
 };

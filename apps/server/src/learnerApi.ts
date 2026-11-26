@@ -1,4 +1,5 @@
 import { normalizeSpeechRate } from "./speechRates.js";
+import { passages, savedTranslations, vocabularyGloss } from "./listeningTranslations.js";
 // 业务读写只接受已经验证的 Learner。资源 ID 先按当前用户查找。
 import type { VerifiedLearner } from "./learnerIdentity.js";
 import { assertPaidAiMock } from "./learnerAiGuard.js";
@@ -157,7 +158,8 @@ function presentLesson(lesson: {
       title: lesson.listeningTitle,
       text: lesson.listeningText,
       chunks: JSON.parse(lesson.listeningChunks) as string[],
-      gloss: JSON.parse(lesson.listeningGloss) as Record<string, string>,
+      gloss: vocabularyGloss(JSON.parse(lesson.listeningGloss)),
+      translations: savedTranslations(passages(JSON.parse(lesson.listeningChunks),lesson.listeningText),JSON.parse(lesson.listeningGloss)),
     },
     words: (lesson.words || []).map((word) => ({
       id: word.id,
@@ -782,7 +784,7 @@ export async function recallOwnLesson(learner: VerifiedLearner, lessonId: string
   if (!lesson) throw new AppError(404, "NOT_FOUND", "找不到资源");
   const trimmed = text.trim();
   if (trimmed.length < 2) throw new AppError(400, "EMPTY", "请先用简短的话写下你听到的主要内容");
-  const gloss = JSON.parse(lesson.listeningGloss) as Record<string, string>;
+  const gloss = vocabularyGloss(JSON.parse(lesson.listeningGloss));
   const hits = Object.entries(gloss).filter(([lemma, meaning]) => trimmed.toLowerCase().includes(lemma.toLowerCase()) || trimmed.includes(meaning));
   return {
     mode: "local-heuristic",

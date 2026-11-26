@@ -388,6 +388,7 @@ try {
       const content = JSON.stringify({
         words, questions, listeningTitle: "A visit",
         listeningChunks: ["I went to the clinic.", "The doctor asked me to rest.", "I drank some water at home."],
+        listeningTranslations: [{index:0,sentence:"I went to the clinic.",translation:"我去了诊所。"},{index:1,sentence:"The doctor asked me to rest.",translation:"医生让我休息。"},{index:2,sentence:"I drank some water at home.",translation:"我在家喝了些水。"}],
       });
       return Response.json({ choices: [{ finish_reason: lessonCalls === 1 ? "stop" : "length", message: { content } }] });
     }

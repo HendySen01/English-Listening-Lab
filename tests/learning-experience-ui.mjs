@@ -46,7 +46,7 @@ async function verify(engine, name, viewport, mode) {
   let reviews = [promise, schedule], attempts = 0, explainPosts = 0, generations = 0, dialogs = 0;
   page.on("dialog", async dialog => { dialogs++; await dialog.dismiss(); });
   const requestIds = [];
-  let feedbackPosts = 0, savedFeedback = null;
+  let feedbackPosts = 0, savedFeedback = null, translationPosts=0;
   const gistAnswer = "She refuse an offer and we arrange a meeting.";
   const feedback = {
     understanding: "accurate",
@@ -60,7 +60,7 @@ async function verify(engine, name, viewport, mode) {
     theme: "Daily Life", themeLabel: "日常生活", difficulty: "B1", learningDirection: "cet6",
     newWordCount: 2, estimatedMinutes: 60, source: "offline", sourceLabel: "测试课程", poolNote: "",
     progress: { step: "review", completed: [], wordIndex: 0, listening: { round: 1, firstGist: "", thirdGist: "", recall: "", recallNote: "", recallMode: "" }, shadow: { index: 0, marks: [] } },
-    listening: { title: "A morning at work", text: "She politely refused his offer. We schedule a meeting.", chunks: ["She politely refused his offer.", "We schedule a meeting."], gloss: {} },
+    listening: { title: "A morning at work", text: "She politely refused his offer. We schedule a meeting.", chunks: ["She politely refused his offer.", "We schedule a meeting."], gloss: {}, translations:[{index:0,sentence:"She politely refused his offer.",translation:"她礼貌地拒绝了他的提议。"}] },
     words: [politely, schedule], questions: [],
   };
   const settings = { colorMode: mode, speechRate: 1.2, wordPartsEnabled: true };
@@ -86,6 +86,12 @@ async function verify(engine, name, viewport, mode) {
     }
     if (p === "/api/lessons/today/versions") return json([lesson]);
     if (p === "/api/lessons/fixture-lesson" && method === "GET") return json(lesson);
+    if (p === "/api/lessons/fixture-lesson/translations" && method === "POST") {
+      assert.equal(route.request().postDataJSON().confirmCost,true);
+      translationPosts++;
+      lesson.listening.translations=[...lesson.listening.translations,{index:1,sentence:"We schedule a meeting.",translation:"我们安排一场会议。"}];
+      return json({translations:lesson.listening.translations,charged:true});
+    }
     if (p === "/api/lessons/fixture-lesson/listening-feedback" && method === "GET") {
       const answer = lesson.progress.listening.firstGist;
       return json({ answer, feedback: savedFeedback?.answer === answer ? savedFeedback.feedback : null, source: savedFeedback?.answer === answer ? "cache" : "none" });
@@ -201,6 +207,23 @@ async function verify(engine, name, viewport, mode) {
     await gist.getByRole("button", { name: "对照原文 →" }).click();
     await page.getByRole("button", { name: "2 原文", exact: true }).waitFor();
     await page.waitForFunction(() => [...document.querySelectorAll("button")].some(b => b.textContent.trim() === "2 原文" && b.getAttribute("aria-pressed") === "true"));
+    const transcript=page.locator(".transcript-sentence");
+    await transcript.first().locator(".rd-trans-text.is-blurred").waitFor();
+    assert.equal(translationPosts,0);
+    await page.getByRole("button",{name:"补齐中文译文",exact:true}).click();
+    await transcript.nth(1).locator(".rd-trans-text.is-blurred").waitFor();
+    assert.equal(translationPosts,1);
+    await page.goto(origin+"/context?lesson=fixture-lesson");
+    const reading=page.locator(".rd-read");
+    await reading.locator(".rd-trans-text.is-blurred").waitFor();
+    await reading.getByRole("button",{name:"显示翻译",exact:true}).click();
+    assert.equal(await reading.locator(".rd-trans-text").textContent(),"她礼貌地拒绝了他的提议。");
+    await reading.getByRole("button",{name:"下一句",exact:true}).click();
+    await reading.locator(".rd-trans-text.is-blurred").waitFor();
+    assert.equal(await reading.locator(".rd-trans-text").textContent(),"我们安排一场会议。");
+    assert.equal(translationPosts,1);
+    await page.screenshot({path:output+"/"+name+"-context-translations.png",fullPage:true});
+    await page.goto(origin+"/lesson/fixture-lesson");
     const generate = page.getByRole("button", { name: "重新生成课程", exact: true });
     await generate.click();
     const busy = page.getByRole("button", { name: "正在生成…", exact: true });

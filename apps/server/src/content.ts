@@ -1,4 +1,5 @@
 import { vocabularyIpa } from "./pronunciation.js";
+import { addTranslations, validateTranslations } from "./listeningTranslations.js";
 import { z } from "zod";
 import {
   BANK,
@@ -438,7 +439,8 @@ export function assertLessonDraft(draft: LessonDraft, expectedCount: number) {
 export function aiResponseSchema(expectedCount: number) {
   return z.object({
     listeningTitle: z.string().min(1),
-    listeningChunks: z.array(z.string().min(1)).min(3).max(12),
+    listeningChunks: z.array(z.string().trim().min(1)).min(3).max(12),
+    listeningTranslations: z.array(z.unknown()).optional(),
     poolNote: z.string().default(""),
     words: z
       .array(
@@ -489,6 +491,7 @@ export function draftFromAi(raw: unknown, input: {
   difficulty: string;
   dueCount: number;
   wordParts: boolean;
+  requireTranslations?: boolean;
 }): LessonDraft {
   const parsed = aiResponseSchema(input.expectedCount).parse(raw);
   let morphBudget = input.wordParts ? 2 : 0;
@@ -531,6 +534,8 @@ export function draftFromAi(raw: unknown, input: {
     if (wordCount(word.example) > 16) throw new Error(`例句太长：${word.lemma}`);
   }
   const chunks = parsed.listeningChunks.map((line) => line.trim());
+  const translations = parsed.listeningTranslations !== undefined || input.requireTranslations
+    ? validateTranslations(parsed.listeningTranslations, chunks.map((sentence,index)=>({index,sentence}))) : [];
   const draft: LessonDraft = {
     source: "ai",
     theme: input.theme,
@@ -540,7 +545,7 @@ export function draftFromAi(raw: unknown, input: {
     listeningTitle: parsed.listeningTitle,
     listeningText: chunks.map(plain).join(" "),
     listeningChunks: chunks,
-    listeningGloss: Object.fromEntries(words.map((word) => [word.lemma.toLowerCase(), word.meaningZh])),
+    listeningGloss: addTranslations(Object.fromEntries(words.map((word) => [word.lemma.toLowerCase(), word.meaningZh])), translations),
     words,
     questions: parsed.questions.map((question) => ({
       ...question,

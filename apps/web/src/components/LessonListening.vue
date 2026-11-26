@@ -18,14 +18,17 @@
     <ExpandFold :open="stage === 1 || stage === 2" :limit="false">
       <div class="rd-frame rd-workspace">
         <div class="rd-read">
-          <p v-for="(item, sentenceIndex) in passages" :key="item.id" class="rd-sentence" style="font-size: 28px" translate="no">
+          <div v-for="(item, sentenceIndex) in passages" :key="item.id" class="transcript-sentence">
+          <p class="rd-sentence" style="font-size: 28px" translate="no">
             <button class="rd-icon" type="button" :aria-label="`朗读第 ${sentenceIndex + 1} 句`" @click="playSentence(sentenceIndex)"><Volume2 aria-hidden="true" :size="16" /></button>
             <template v-for="(token, tokenIndex) in tokenize(item.sentence)" :key="tokenIndex">
-              <button v-if="token.key" class="rd-token" type="button" :aria-pressed="selected === token.key" @click="selected = token.key">{{ token.text }}</button>
+              <button v-if="token.key" class="rd-token" type="button" :aria-pressed="selected === token.key" @click="selectWord(token.key,item.index)">{{ token.text }}</button>
               <span v-else>{{ token.text }}</span>
             </template>
           </p>
-          <p class="rd-source">这节课没有逐句中文，所以这里不显示翻译。</p>
+            <BlurText v-if="item.translation" :text="item.translation" :clear="Boolean(revealed[item.index])" @toggle="revealed[item.index] = !revealed[item.index]" />
+          </div>
+          <TranslationFill :missing="missing" :busy="translationBusy" :error="translationError" @complete="complete" />
         </div>
         <ReaderNotes column-scroll :key="selected" :word="selected" :analysis="analysis" :summary="summary" :source="source" :loading="loading" :error="error" mark="" @speak="(text) => speak(text)" @explain="explain" />
       </div>
@@ -45,7 +48,10 @@
 <script setup lang="ts">
 import SpeechRateControl from "./SpeechRateControl.vue"
 import ListeningGist from "./ListeningGist.vue"
-import { computed, onMounted, ref } from "vue"
+import { computed, onMounted, ref, toRef, watch } from "vue"
+import BlurText from "../preview/BlurText.vue"
+import TranslationFill from "./TranslationFill.vue"
+import { useLessonTranslations } from "../composables/useLessonTranslations"
 import { Volume2 } from "lucide-vue-next"
 import ExpandFold from "../preview/ExpandFold.vue"
 import ReaderNotes from "../preview/ReaderNotes.vue"
@@ -62,6 +68,9 @@ const emit = defineEmits<{ save: [progress?: Progress] }>()
 const stages = ["1 盲听", "2 原文", "3 再听", "4 回忆"]
 const stage = ref(Math.max(0, Math.min(3, (props.lesson.progress.listening.round || 1) - 1)))
 const selected = ref("")
+const selectedIndex=ref(-1),revealed=ref<Record<number,boolean>>({})
+const {rows,missing,busy:translationBusy,error:translationError,complete}=useLessonTranslations(toRef(props,"lesson"))
+function selectWord(word:string,index:number){selectedIndex.value=index;selected.value=word}
 const feedbackBusy = ref(false)
 const { speech, rate, rateError } = useStudySpeech()
 const onlineAvailable = ref(false)
@@ -75,15 +84,11 @@ function playOnline() {
   if (!speech.hasOnlineClip(text) && !confirm("在线朗读会发送本节课的听力原文到语音服务，并可能产生费用。继续吗？")) return
   void speech.play(text, rate.value, true)
 }
-const passages = computed(() => {
-  const chunks = props.lesson.listening.chunks.filter(Boolean)
-  const source = chunks.length ? chunks : [props.lesson.listening.text]
-  return source.map((sentence, index) => ({ id: `${props.lesson.id}:${index}`, sentence: sentence.replace(/\s*\/\s*/g, " ") }))
-})
+const passages=computed(()=>rows.value.map(row=>({...row,id:`${props.lesson.id}:chunk:${row.index}`})))
 const matched = computed(() => props.lesson.words.find((word) => word.lemma.toLowerCase() === selected.value) || null)
-const passageId = computed(() => matched.value ? `lesson:${props.lesson.id}:word:${matched.value.id}` : `${props.lesson.id}:listen`)
+const passageId = computed(() => matched.value ? `lesson:${props.lesson.id}:word:${matched.value.id}` : props.lesson.listening.chunks.some(x=>x.trim()) ? `${props.lesson.id}:chunk:${selectedIndex.value}` : `${props.lesson.id}:listen`)
 const lemma = computed(() => selected.value)
-const sentence = computed(() => passages.value.find((item) => item.sentence.toLowerCase().includes(selected.value))?.sentence || props.lesson.listening.text)
+const sentence = computed(() => passages.value.find(item=>item.index===selectedIndex.value)?.sentence || "")
 const { analysis, source, loading, error, explain } = useExplanation(passageId, lemma, sentence)
 const summary = computed(() => {
   if (!matched.value || analysis.value) return undefined
@@ -98,6 +103,7 @@ const summary = computed(() => {
 function setStage(next: number) {
   if (feedbackBusy.value) return
   stage.value = next
+  revealed.value={}; selected.value=""; selectedIndex.value=-1
   props.lesson.progress.listening.round = next + 1
   speech.stop()
   emit("save")
@@ -127,3 +133,7 @@ async function checkRecall() {
   emit("save")
 }
 </script>
+
+<style scoped>
+.transcript-sentence{padding:12px 0;border-bottom:1px solid var(--line)}.transcript-sentence .rd-sentence{margin:0 0 10px}
+</style>
