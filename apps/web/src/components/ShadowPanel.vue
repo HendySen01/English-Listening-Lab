@@ -5,7 +5,7 @@
     <p class="word" style="font-size: 28px">{{ plain }}</p>
     <div class="row">
       <button class="choice active" @click="speech.play(plain, rate)">播放这一句</button>
-        <button v-for="speed in rates" :key="speed" type="button" class="choice" :aria-pressed="rate === speed" :disabled="rateBusy" @click="setRate(speed)">{{ speed }}×</button>
+      <SpeechRateControl />
       <button class="choice" @click="mark('followed')">跟上了</button>
       <button class="choice" @click="mark('missed')">没跟上</button>
     </div>
@@ -17,17 +17,20 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, watch } from "vue";
+import SpeechRateControl from "./SpeechRateControl.vue";
 import { useStudySpeech } from "../composables/useStudySpeech";
 import type { Lesson, Progress } from "../stores/app";
 
 const props = defineProps<{ lesson: Lesson }>();
 const emit = defineEmits<{ save: [progress?: Progress] }>();
-const { speech, rate, rates, rateBusy, rateError, setRate } = useStudySpeech();
+const { speech, rate, rateError } = useStudySpeech();
 const lines = computed(() => props.lesson.listening.chunks.map((line) => line.replace(/\s*\/\s*/g, " ")));
 const index = computed(() => props.lesson.progress.shadow.index || 0);
 const plain = computed(() => lines.value[index.value] || "");
 const done = computed(() => index.value >= lines.value.length - 1 && props.lesson.progress.shadow.marks[index.value]);
+
+watch(plain, () => speech.stop());
 
 function mark(value: string) {
   const marks = [...props.lesson.progress.shadow.marks];

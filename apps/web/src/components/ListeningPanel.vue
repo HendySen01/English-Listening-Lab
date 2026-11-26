@@ -14,7 +14,7 @@
         <p class="audio-state">{{ voiceLabel }} · {{ speech.status.value }}<span v-if="speech.detail.value"> · {{ speech.detail.value }}</span></p>
         <div class="row">
           <button class="choice" @click="replay">重播</button>
-          <button class="choice" @click="speech.play(currentText, Math.max(0.8, rate - 0.2))">放慢</button>
+          <SpeechRateControl />
           <button class="choice" @click="speech.stop">停止</button>
         </div>
       </div>
@@ -53,12 +53,13 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { api } from "../api";
-import { useSpeech } from "../composables/useSpeech";
+import { useStudySpeech } from "../composables/useStudySpeech";
+import SpeechRateControl from "./SpeechRateControl.vue";
 import type { Lesson, Progress } from "../stores/app";
 
 const props = defineProps<{ lesson: Lesson; rate: number }>();
 const emit = defineEmits<{ save: [progress?: Progress] }>();
-const speech = useSpeech();
+const { speech, rate } = useStudySpeech();
 const selected = ref("");
 const chinese = ref(false);
 const voiceLabel = computed(() => {
@@ -89,11 +90,11 @@ function setRound(round: number) {
 }
 function replay() {
   speech.stop();
-  void speech.play(currentText.value, props.rate);
+  void speech.play(currentText.value, rate.value);
 }
 function toggle() {
   if (speech.status.value === "播放中") speech.pause();
-  else speech.play(currentText.value, props.rate);
+  else speech.play(currentText.value, rate.value);
 }
 async function check() {
   const result = await api<{ mode: string; note: string }>(`/api/lessons/${props.lesson.id}/recall`, {

@@ -23,6 +23,8 @@
         </div>
         <p v-if="speech.status.value !== '空闲' || speech.detail.value" class="rd-status" role="status">{{ speech.sourceLabel.value }} · {{ speech.status.value }}<template v-if="speech.detail.value"> · {{ speech.detail.value }}</template></p>
         <p class="rd-meta"><span translate="no">{{ current.ipa || "没有可靠音标" }}</span><span>·</span><span>{{ current.pos }}</span></p>
+        <SpeechRateControl />
+        <p v-if="rateError" class="rd-note" role="status">{{ rateError }}</p>
         <p class="rd-copy">{{ current.meaningZh }}</p>
         <p v-if="current.definitionEn" class="rd-copy">{{ current.definitionEn }}</p>
         <p v-if="current.collocation" class="rd-source">常见搭配：{{ current.collocation }}</p>
@@ -90,6 +92,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue"
 import { Volume2 } from "lucide-vue-next"
+import SpeechRateControl from "../components/SpeechRateControl.vue"
 import BlurText from "../preview/BlurText.vue"
 import ExpandFold from "../preview/ExpandFold.vue"
 import { useExplanation } from "../preview/explain"
@@ -128,7 +131,7 @@ const errorText = ref("")
 const narrow = ref(window.matchMedia("(max-width: 900px)").matches)
 const now = ref(new Date())
 const clear = ref(false)
-const { speech, rate } = useStudySpeech()
+const { speech, rate, rateError } = useStudySpeech()
 const filters = [
   { id: "all", label: "全部" },
   { id: "due", label: "待复习" },

@@ -10,9 +10,7 @@
       <button class="rd-pill primary" type="button" @click="toggle">{{ speech.status.value === "播放中" ? "暂停" : speech.status.value === "已暂停" ? "继续" : "播放" }}</button>
       <button class="rd-pill" type="button" @click="replay">重播</button>
       <button v-if="onlineAvailable" class="rd-pill" type="button" :disabled="speech.status.value === '准备'" @click="playOnline">在线朗读</button>
-      <span class="rd-segment" role="group" aria-label="语速">
-        <button v-for="item in rates" :key="item" class="rd-pill" type="button" :aria-pressed="rate === item" :disabled="rateBusy" @click="setRate(item)">{{ item }}×</button>
-      </span>
+      <SpeechRateControl />
       <span class="rd-source" role="status">{{ speech.sourceLabel.value }} · {{ speech.status.value }}<template v-if="speech.detail.value"> · {{ speech.detail.value }}</template></span>
     </div>
     <p v-if="rateError" class="rd-note" role="status">{{ rateError }}</p>
@@ -47,6 +45,7 @@
 </template>
 
 <script setup lang="ts">
+import SpeechRateControl from "./SpeechRateControl.vue"
 import { computed, onMounted, ref } from "vue"
 import { Volume2 } from "lucide-vue-next"
 import ExpandFold from "../preview/ExpandFold.vue"
@@ -64,7 +63,7 @@ const emit = defineEmits<{ save: [progress?: Progress] }>()
 const stages = ["1 盲听", "2 原文", "3 再听", "4 回忆"]
 const stage = ref(Math.max(0, Math.min(3, (props.lesson.progress.listening.round || 1) - 1)))
 const selected = ref("")
-const { speech, rate, rates, rateBusy, rateError, setRate } = useStudySpeech()
+const { speech, rate, rateError } = useStudySpeech()
 const onlineAvailable = ref(false)
 onMounted(async () => {
   const services = await api<{ ttsUsable?: boolean }>("/api/system").catch(() => null)

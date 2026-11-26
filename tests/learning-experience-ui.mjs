@@ -54,7 +54,7 @@ async function verify(engine, name, viewport, mode) {
     listening: { title: "A morning at work", text: "She politely refused his offer. We schedule a meeting.", chunks: ["She politely refused his offer.", "We schedule a meeting."], gloss: {} },
     words: [politely, schedule], questions: [],
   };
-  const settings = { colorMode: mode, speechRate: 1, wordPartsEnabled: true };
+  const settings = { colorMode: mode, speechRate: 1.2, wordPartsEnabled: true };
   await page.route("**/*", async route => {
     const url = new URL(route.request().url());
     if (url.origin !== origin) return route.abort();
@@ -64,6 +64,7 @@ async function verify(engine, name, viewport, mode) {
     if (p === "/api/user-runtime/health") return json({ ok: false }, 404);
     if (p === "/api/dashboard") return json({ dateLabel: "2026-11-25", settings, lesson });
     if (p === "/api/system") return json({ ok: true, ttsUsable: false });
+    if (p === "/api/settings" && method === "PUT") { Object.assign(settings, route.request().postDataJSON()); return json(settings); }
     if (p === "/api/lessons/ai-version" && method === "POST") {
       generations++;
       const body = route.request().postDataJSON();
@@ -127,6 +128,20 @@ async function verify(engine, name, viewport, mode) {
     await page.screenshot({ path: output + "/" + name + "-parts.png", fullPage: true });
     const dimensions = await page.evaluate(() => ({ width: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
     assert.ok(dimensions.scroll <= dimensions.width + 2, "Unexpected horizontal overflow: " + JSON.stringify(dimensions));
+    await page.getByRole("button", { name: "5 跟读", exact: true }).click();
+    const speeds = page.getByRole("group", { name: "语速", exact: true });
+    await speeds.waitFor();
+    assert.equal(await speeds.getByRole("button").count(), 3);
+    assert.equal(await speeds.getByRole("button", { name: "1.3× 快速" }).getAttribute("aria-pressed"), "true");
+    await speeds.getByRole("button", { name: "0.7× 慢速" }).click();
+    await page.waitForFunction(() => document.querySelector('.speed-control button[aria-pressed="true"]')?.getAttribute("aria-label") === "0.7× 慢速" && !document.querySelector('.speed-control button:disabled'));
+    assert.equal(settings.speechRate, 0.7);
+    await page.getByRole("button", { name: "4 听力", exact: true }).click();
+    await speeds.waitFor();
+    assert.equal(await speeds.getByRole("button", { name: "0.7× 慢速" }).getAttribute("aria-pressed"), "true");
+    await page.reload();
+    await speeds.waitFor();
+    assert.equal(await speeds.getByRole("button", { name: "0.7× 慢速" }).getAttribute("aria-pressed"), "true");
     const generate = page.getByRole("button", { name: "重新生成课程", exact: true });
     await generate.click();
     const busy = page.getByRole("button", { name: "正在生成…", exact: true });

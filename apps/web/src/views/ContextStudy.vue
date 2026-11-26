@@ -9,9 +9,7 @@
           <button class="rd-pill" type="button" :disabled="index === 0" @click="index -= 1">上一句</button>
           <button class="rd-pill" type="button" :disabled="index === passages.length - 1" @click="index += 1">下一句</button>
           <button class="rd-pill primary" type="button" @click="speak(passages[index].sentence)">朗读句子</button>
-          <span class="rd-segment" role="group" aria-label="语速">
-            <button v-for="item in rates" :key="item" class="rd-pill" type="button" :aria-pressed="rate === item" :disabled="rateBusy" @click="setRate(item)">{{ item }}×</button>
-          </span>
+          <SpeechRateControl />
         </div>
         <p v-if="rateError" class="rd-note" role="status">{{ rateError }}</p>
         <p class="rd-sentence" translate="no">
@@ -44,6 +42,7 @@
 </template>
 
 <script setup lang="ts">
+import SpeechRateControl from "../components/SpeechRateControl.vue"
 import { computed, onMounted, ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import BlurText from "../preview/BlurText.vue"
@@ -65,7 +64,7 @@ const index = ref(0)
 const selected = ref("")
 const clear = ref(false)
 const voice = ref("浏览器语音，尚未播放")
-const { speech, rate, rates, rateBusy, rateError, setRate } = useStudySpeech()
+const { speech, rate, rateError } = useStudySpeech()
 const passages = computed(() => {
   if (!lesson.value) return []
   const chunks = lesson.value.listening.chunks.filter(Boolean).map((sentence, chunkIndex) => ({

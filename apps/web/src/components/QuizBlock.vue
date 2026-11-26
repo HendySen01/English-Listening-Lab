@@ -20,7 +20,7 @@
         <p :class="question.correct ? 'ok' : 'bad'">{{ question.correct ? "答对了" : "这题不一致" }}</p>
         <p>正确答案：{{ question.options[question.answerIndex || 0] }}</p>
         <p>{{ question.explanationEn }}</p>
-        <p>{{ question.explanationZh }}</p>
+        <BlurText v-if="question.explanationZh" :text="question.explanationZh" :clear="Boolean(revealed[question.id])" @toggle="revealed[question.id] = !revealed[question.id]" />
         <p class="muted">原文：{{ question.evidence }}</p>
         <p v-for="(reason, index) in question.whyWrong || []" :key="index" v-show="reason" class="muted">{{ reason }}</p>
         <button class="text-button" @click="simpler(question.id)">我仍然不理解</button>
@@ -31,13 +31,17 @@
 </template>
 
 <script setup lang="ts">
-import { reactive } from "vue";
+import { reactive, watch } from "vue";
+import BlurText from "../preview/BlurText.vue";
+import "../preview/reader.css";
 import { api } from "../api";
 import type { Lesson } from "../stores/app";
 
 const props = defineProps<{ lesson: Lesson }>();
 const emit = defineEmits<{ changed: [] }>();
 const notes = reactive<Record<string, string>>({});
+const revealed = reactive<Record<string, boolean>>({});
+watch(() => props.lesson.id, () => { for (const key of Object.keys(revealed)) delete revealed[key]; });
 
 function kindLabel(kind: string) {
   if (kind === "context") return "词汇语境";
