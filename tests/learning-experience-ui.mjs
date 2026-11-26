@@ -46,6 +46,15 @@ async function verify(engine, name, viewport, mode) {
   let reviews = [promise, schedule], attempts = 0, explainPosts = 0, generations = 0, dialogs = 0;
   page.on("dialog", async dialog => { dialogs++; await dialog.dismiss(); });
   const requestIds = [];
+  let feedbackPosts = 0, savedFeedback = null;
+  const gistAnswer = "She refuse an offer and we arrange a meeting.";
+  const feedback = {
+    understanding: "accurate",
+    comprehension: { en: "You understood the main events.", zh: "你理解了主要事件。" },
+    language: { en: "Use refused instead of refuse.", zh: "用 refused 替换 refuse。" },
+    naturalVersion: { en: "She refused an offer and we arranged a meeting.", zh: "她拒绝了提议，我们安排了一场会议。" },
+    evidence: ["She politely refused his offer."],
+  };
   const lesson = {
     id: "fixture-lesson", lessonDate: "2026-11-25", version: 1, active: true,
     theme: "Daily Life", themeLabel: "日常生活", difficulty: "B1", learningDirection: "cet6",
@@ -77,6 +86,21 @@ async function verify(engine, name, viewport, mode) {
     }
     if (p === "/api/lessons/today/versions") return json([lesson]);
     if (p === "/api/lessons/fixture-lesson" && method === "GET") return json(lesson);
+    if (p === "/api/lessons/fixture-lesson/listening-feedback" && method === "GET") {
+      const answer = lesson.progress.listening.firstGist;
+      return json({ answer, feedback: savedFeedback?.answer === answer ? savedFeedback.feedback : null, source: savedFeedback?.answer === answer ? "cache" : "none" });
+    }
+    if (p === "/api/lessons/fixture-lesson/listening-feedback" && method === "POST") {
+      const body = route.request().postDataJSON();
+      assert.equal(body.confirmCost, true);
+      assert.equal(body.answer, gistAnswer);
+      feedbackPosts++;
+      lesson.progress.listening.firstGist = body.answer;
+      await new Promise(resolve => setTimeout(resolve, 350));
+      if (feedbackPosts === 1) return json({ error: "测试：批改暂时失败，答案已保留。" }, 502);
+      savedFeedback = { answer: body.answer, feedback, model: "fixture" };
+      return json({ ...savedFeedback, source: "live", charged: true });
+    }
     if (p === "/api/lessons/fixture-lesson/progress" && method === "PATCH") {
       lesson.progress = route.request().postDataJSON().progress; return json(lesson);
     }
@@ -142,6 +166,41 @@ async function verify(engine, name, viewport, mode) {
     await page.reload();
     await speeds.waitFor();
     assert.equal(await speeds.getByRole("button", { name: "0.7× 慢速" }).getAttribute("aria-pressed"), "true");
+    const gist = page.locator(".gist-card");
+    const answer = gist.getByRole("textbox", { name: "Your summary" });
+    await answer.waitFor();
+    await page.waitForFunction(() => !document.querySelector("#listening-gist-answer")?.disabled);
+    assert.equal(await gist.getByRole("button", { name: "提交 AI 批改" }).isDisabled(), true);
+    await answer.fill(gistAnswer);
+    await gist.getByRole("button", { name: "提交 AI 批改" }).click();
+    const grading = gist.getByRole("button", { name: "正在批改…" });
+    await grading.waitFor();
+    assert.equal(await grading.isDisabled(), true);
+    await grading.evaluate(button => button.click());
+    await gist.getByRole("alert").waitFor();
+    assert.equal(await answer.inputValue(), gistAnswer);
+    assert.equal(feedbackPosts, 1);
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector("#listening-gist-answer")?.value === "She refuse an offer and we arrange a meeting." && !document.querySelector("#listening-gist-answer")?.disabled);
+    await gist.getByRole("button", { name: "提交 AI 批改" }).click();
+    await gist.getByRole("heading", { name: "You understood the main idea" }).waitFor();
+    assert.equal(feedbackPosts, 2);
+    assert.equal(await gist.locator(".rd-trans-text.is-blurred").count(), 3);
+    const firstFeedback = gist.locator(".gist-section").first();
+    await firstFeedback.getByRole("button", { name: "显示翻译" }).click();
+    assert.equal(await firstFeedback.locator(".rd-trans-text.is-blurred").count(), 0);
+    assert.equal(await gist.locator(".rd-trans-text.is-blurred").count(), 2);
+    await firstFeedback.getByRole("button", { name: "隐藏翻译" }).click();
+    await page.screenshot({ path: output + "/" + name + "-listening-feedback.png", fullPage: true });
+    await page.reload();
+    await gist.getByRole("heading", { name: "You understood the main idea" }).waitFor();
+    assert.equal(await answer.inputValue(), gistAnswer);
+    assert.equal(await gist.locator(".rd-trans-text.is-blurred").count(), 3);
+    assert.equal(await gist.getByRole("button", { name: "已完成批改" }).isDisabled(), true);
+    assert.equal(feedbackPosts, 2, "Restoring feedback must not POST again");
+    await gist.getByRole("button", { name: "对照原文 →" }).click();
+    await page.getByRole("button", { name: "2 原文", exact: true }).waitFor();
+    await page.waitForFunction(() => [...document.querySelectorAll("button")].some(b => b.textContent.trim() === "2 原文" && b.getAttribute("aria-pressed") === "true"));
     const generate = page.getByRole("button", { name: "重新生成课程", exact: true });
     await generate.click();
     const busy = page.getByRole("button", { name: "正在生成…", exact: true });
@@ -157,7 +216,7 @@ async function verify(engine, name, viewport, mode) {
     assert.equal(dialogs, 0, "Generation must not open a native confirmation dialog");
     assert.deepEqual(errors, [], "Browser errors");
     assert.deepEqual(unexpected, [], "Unhandled mock requests");
-    console.log(name + ": review and cached word formation passed");
+    console.log(name + ": review, word formation, shared speeds, listening feedback and course generation passed");
   } catch (error) {
     await page.screenshot({ path: output + "/" + name + "-failure.png", fullPage: true }).catch(() => {});
     throw error;

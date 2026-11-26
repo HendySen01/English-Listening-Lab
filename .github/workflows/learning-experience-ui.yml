@@ -40,6 +40,19 @@ jobs:
           status=$?
           cat ui-results/typescript.log
           echo "TypeScript exit status: $status (diagnostic only; not Vue SFC typecheck)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Test listening feedback with isolated SQLite and intercepted provider
+        env:
+          USER_DATABASE_URL: file:${{ github.workspace }}/data/user-runtime-listening-ci.db
+          AUTH_DATABASE_URL: file:${{ github.workspace }}/data/auth-runtime-listening-ci.db
+          DATABASE_URL: file:${{ github.workspace }}/data/listening-ci.db
+          USER_RUNTIME: "1"
+          POSTGRES_RUNTIME: "0"
+        run: |
+          mkdir -p data
+          npm exec -w @lab/server -- prisma generate --schema prisma-user/schema.prisma
+          npm exec -w @lab/server -- prisma generate --schema prisma-auth/schema.prisma
+          npm exec -w @lab/server -- prisma db push --schema prisma-user/schema.prisma --skip-generate
+          ./node_modules/.bin/tsx tests/listening-feedback-service.ts
       - name: Install isolated browser test runner
         run: |
           npm install --prefix "$RUNNER_TEMP/ell-playwright" --no-audit --no-fund --ignore-scripts --save-exact playwright@1.56.1

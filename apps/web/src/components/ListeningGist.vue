@@ -19,7 +19,7 @@
       </article>
       <details class="gist-evidence"><summary>Check the evidence · 对照原文依据</summary><p v-for="quote in currentFeedback.evidence" :key="quote" lang="en" translate="no">{{ quote }}</p></details>
     </section>
-    <footer class="gist-footer"><button class="rd-pill" type="button" :disabled="busy" @click="$emit('next')">{{ currentFeedback ? "对照原文 →" : "暂不批改，查看原文 →" }}</button></footer>
+    <footer class="gist-footer"><button class="rd-pill" type="button" :disabled="busy" @click="advance">{{ currentFeedback ? "对照原文 →" : "暂不批改，查看原文 →" }}</button></footer>
   </section>
 </template>
 <script setup lang="ts">
@@ -46,9 +46,10 @@ onMounted(async()=>{
     draft.value=result.answer;
     saved.value=result;
     emit("saved",result.answer);
-  } catch { /* Old local runtime can still display the draft; submitting reports its actual error. */ }
+  } catch { error.value = "暂时无法读取已保存的批改。你仍可以继续练习或重新提交。"; }
   finally { restoring.value=false; }
 });
+function advance(){ emit("saved",draft.value.trim()); emit("next"); }
 async function submit(){
   if(busy.value || restoring.value || !draft.value.trim() || currentFeedback.value)return;
   busy.value=true;emit("busy",true);error.value="";revealed.value={};
