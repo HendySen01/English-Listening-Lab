@@ -1,8 +1,11 @@
+import { normalizeSpeechRate } from "./speechRates.js";
 // 这些路由只挂在隔离多用户运行时。未列出的 /api 路径由调用方默认拒绝。
 import express from "express";
 import { isTrustedRequestOrigin } from "./auth.js";
 import { AppError } from "./errors.js";
 import { cachedOwnedExplanation, explainOwnedPassage } from "./learnerExplanation.js";
+import { readListeningFeedback, submitListeningFeedback } from "./learnerListeningFeedback.js";
+import { completeOwnTranslations } from "./learnerTranslations.js";
 import {
   activateOwnLesson,
   addOwnSession,
@@ -17,6 +20,7 @@ import {
   ownLibrary,
   ownQuota,
   ownReviewQueue,
+  ownReviewHistory,
   ownSettings,
   ownStats,
   practiceOwnWord,
@@ -137,6 +141,9 @@ export function mountLearnerBusinessRoutes(app: express.Express) {
   route("get", "/api/lessons", async (req) => ownLessons(await learnerOf(req)));
   route("get", "/api/lessons/:id", async (req) => ownLesson(await learnerOf(req), routeId(req.params.id)));
   route("patch", "/api/lessons/:id/progress", async (req) => saveOwnLessonProgress(await learnerOf(req), routeId(req.params.id), req.body?.progress));
+  route("post", "/api/lessons/:id/translations", async (req) => completeOwnTranslations(await learnerOf(req), routeId(req.params.id), req.body?.confirmCost));
+  route("get", "/api/lessons/:id/listening-feedback", async (req) => readListeningFeedback(await learnerOf(req), routeId(req.params.id)));
+  route("post", "/api/lessons/:id/listening-feedback", async (req) => submitListeningFeedback(await learnerOf(req), routeId(req.params.id), req.body?.answer, req.body?.confirmCost));
   route("post", "/api/lessons/:id/recall", async (req) => recallOwnLesson(await learnerOf(req), routeId(req.params.id), String(req.body?.text || "")));
   route("post", "/api/vocabulary/:id/known", async (req) => rateOwnWord(await learnerOf(req), routeId(req.params.id), "easy", "recall", req.body?.clientRequestId, req.body?.progress, true));
   route("post", "/api/vocabulary/:id/easier", async (req) => easierOwnExample(await learnerOf(req), routeId(req.params.id), req.body?.clientRequestId, req.body?.inputTokens));
@@ -147,6 +154,7 @@ export function mountLearnerBusinessRoutes(app: express.Express) {
     String(req.query.q || ""),
     String(req.query.focus || ""),
   ));
+  route("get", "/api/review/:id/history", async (req) => ownReviewHistory(await learnerOf(req),routeId(req.params.id)));
   route("post", "/api/review/:id/practice", async (req) => {
     const learner = await learnerOf(req);
     if (req.body?.formal === true) {
@@ -166,7 +174,7 @@ export function mountLearnerBusinessRoutes(app: express.Express) {
   route("post", "/api/sessions", async (req) => addOwnSession(await learnerOf(req), req.body?.lessonId || null, String(req.body?.module || "lesson"), Number(req.body?.minutes || 0)));
   route("post", "/api/tts", async (req) => {
     const learner = await learnerOf(req);
-    const rate = [0.8, 0.9, 1, 1.1, 1.2].includes(Number(req.body?.rate)) ? Number(req.body?.rate) : 1;
+    const rate = normalizeSpeechRate(req.body?.rate);
     if (req.body?.useOnline === true) {
       return { mode: "file", ...await synthesizeOnline(learner.learnerId, req.body?.text), rate };
     }

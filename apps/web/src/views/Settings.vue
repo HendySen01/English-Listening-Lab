@@ -66,12 +66,10 @@
       <p v-if="system?.ttsHost" class="muted">{{ system.ttsHost }} · {{ system.ttsModel }} · 音色 {{ system.ttsVoice }}</p>
       <p v-if="system?.ttsNote">{{ system.ttsNote }}</p>
       <p>浏览器语音：{{ browserVoices }}</p>
-      <label class="field">全站播放语速
-        <select :value="store.speechRate" :disabled="store.speechRateBusy" @change="changeRate">
-          <option v-for="rate in speechRates" :key="rate" :value="rate">{{ rate }}×</option>
-        </select>
+      <div class="field">全站播放语速
+        <SpeechRateControl />
         <small>立即应用于浏览器朗读和在线语音，并保存到当前学习空间。</small>
-      </label>
+      </div>
       <p v-if="store.speechRateError" class="bad" role="status">{{ store.speechRateError }}</p>
     </article>
     <article class="card stack" v-show="section === 'look'">
@@ -105,7 +103,8 @@
 import { onMounted, ref } from "vue";
 import { api } from "../api";
 import { formatWhen } from "../lib/due";
-import { applyTheme, speechRates, useAppStore } from "../stores/app";
+import { applyTheme, useAppStore } from "../stores/app";
+import SpeechRateControl from "../components/SpeechRateControl.vue";
 import { sessionUser } from "../lib/authClient";
 
 const store = useAppStore();
@@ -139,9 +138,6 @@ const aiBusy = ref(false);
 const browserVoices = ref("正在检查");
 const mailConfigured = ref<boolean | null>(null);
 
-function changeRate(event: Event) {
-  void store.setSpeechRate(Number((event.target as HTMLSelectElement).value));
-}
 
 async function save() {
   try {

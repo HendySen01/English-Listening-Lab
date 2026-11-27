@@ -1,0 +1,118 @@
+name: Learning experience UI checks
+
+on:
+  push:
+    branches:
+      - redesign/learning-experience
+
+permissions:
+  contents: read
+
+concurrency:
+  group: learning-experience-ui
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    env:
+      CI: "true"
+      VITE_PROTECTED_RUNTIME: "0"
+      AI_REAL_CALLS: "0"
+      npm_config_cache: /tmp/ell-npm-cache
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install locked project dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build real Vue production bundle
+        run: npm run build -w @lab/web
+      - name: Collect existing TypeScript diagnostics (non-blocking)
+        run: |
+          mkdir -p ui-results
+          set +e
+          ./node_modules/.bin/tsc --noEmit -p apps/web/tsconfig.json > ui-results/typescript.log 2>&1
+          status=$?
+          cat ui-results/typescript.log
+          echo "TypeScript exit status: $status (diagnostic only; not Vue SFC typecheck)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Verify FSRS progression and interval labels
+        run: ./node_modules/.bin/tsx tests/fsrs-schedule.mts
+      - name: Test listening feedback with isolated SQLite and intercepted provider
+        env:
+          USER_DATABASE_URL: file:${{ github.workspace }}/data/user-runtime-listening-ci.db
+          AUTH_DATABASE_URL: file:${{ github.workspace }}/data/auth-runtime-listening-ci.db
+          DATABASE_URL: file:${{ github.workspace }}/data/listening-ci.db
+          USER_RUNTIME: "1"
+          POSTGRES_RUNTIME: "0"
+        run: |
+          mkdir -p data
+          npm exec -w @lab/server -- prisma generate --schema prisma-user/schema.prisma
+          npm exec -w @lab/server -- prisma generate --schema prisma-auth/schema.prisma
+          npm exec -w @lab/server -- prisma db push --schema prisma-user/schema.prisma --skip-generate
+          ./node_modules/.bin/tsx tests/listening-feedback-service.mts
+      - name: Upload diagnostic logs and fixture screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: learning-experience-backend-results
+          path: ui-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
+      options: --ipc=host
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: "true"
+      VITE_PROTECTED_RUNTIME: "0"
+      AI_REAL_CALLS: "0"
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      npm_config_cache: /tmp/ell-npm-cache
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install locked project dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build real Vue production bundle
+        run: npm run build -w @lab/web
+      - name: Install matching Playwright JavaScript package (browsers preinstalled)
+        timeout-minutes: 4
+        run: |
+          npm install --prefix "$RUNNER_TEMP/ell-playwright" --no-audit --no-fund --ignore-scripts --save-exact playwright@1.56.1
+          "$RUNNER_TEMP/ell-playwright/node_modules/.bin/playwright" --version
+      - name: Browser smoke tests on real application routes with mock APIs
+        timeout-minutes: 8
+        run: |
+          mkdir -p ui-results
+          npm run preview -w @lab/web -- --strictPort > ui-results/preview.log 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:5173/ >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:5173/ >/dev/null
+          PLAYWRIGHT_DIR="$RUNNER_TEMP/ell-playwright" node tests/learning-experience-ui.mjs
+      - name: Upload diagnostic logs and fixture screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: learning-experience-ui-results
+          path: ui-results/
+          if-no-files-found: ignore
+          retention-days: 7

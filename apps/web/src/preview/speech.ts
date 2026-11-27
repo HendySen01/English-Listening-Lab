@@ -1,8 +1,9 @@
 import { ref } from "vue"
 
-export const previewRates = [0.8, 1, 1.2] as const
+import { normalizeSpeechRate, speechRates } from "../lib/speechRates"
+export const previewRates = speechRates
 const stored = Number(sessionStorage.getItem("ell-preview-rate"))
-export const previewRate = ref<number>(previewRates.includes(stored as 0.8 | 1 | 1.2) ? stored : 1)
+export const previewRate = ref<number>(normalizeSpeechRate(stored))
 
 export type SpeechRecord = {
   rate: number
@@ -27,8 +28,8 @@ function englishVoice() {
 }
 
 export function choosePreviewRate(next: number) {
-  previewRate.value = next
-  sessionStorage.setItem("ell-preview-rate", String(next))
+  previewRate.value = normalizeSpeechRate(next)
+  sessionStorage.setItem("ell-preview-rate", String(previewRate.value))
 }
 
 export function stopEnglish() {

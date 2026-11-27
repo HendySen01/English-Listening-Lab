@@ -11,7 +11,7 @@ const holding = ["pending", "succeeded", "unknown"] as const;
 export function aiOutputTokenLimit() {
   return requiredInt("AI_MAX_OUTPUT_TOKENS", 6000);
 }
-export const aiKinds = ["lesson", "explain", "example", "simpler", "probe"] as const;
+export const aiKinds = ["lesson", "explain", "example", "simpler", "probe", "listening-feedback", "listening-translation"] as const;
 export type AiKind = (typeof aiKinds)[number];
 
 let schemaReady = false;

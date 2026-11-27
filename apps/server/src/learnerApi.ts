@@ -1,3 +1,5 @@
+import { normalizeSpeechRate } from "./speechRates.js";
+import { passages, savedTranslations, vocabularyGloss } from "./listeningTranslations.js";
 // 业务读写只接受已经验证的 Learner。资源 ID 先按当前用户查找。
 import type { VerifiedLearner } from "./learnerIdentity.js";
 import { assertPaidAiMock } from "./learnerAiGuard.js";
@@ -6,7 +8,7 @@ import { practiceOwnWord, rateOwnWord } from "./learnerReview.js";
 import { AppError } from "./errors.js";
 import { THEME_ZH } from "./content.js";
 import { readStudyTimeZone, studyDate, studyDayBounds, studyNow, studyWeek } from "./studyTime.js";
-import { previewDays, type RatingName } from "./srs.js";
+import { previewDays, previewMinutes, type RatingName } from "./srs.js";
 import { learnerDb } from "./runtimeClients.js";
 import { studyPreferences, updateStudyPreferences } from "./studyPreferences.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -156,7 +158,8 @@ function presentLesson(lesson: {
       title: lesson.listeningTitle,
       text: lesson.listeningText,
       chunks: JSON.parse(lesson.listeningChunks) as string[],
-      gloss: JSON.parse(lesson.listeningGloss) as Record<string, string>,
+      gloss: vocabularyGloss(JSON.parse(lesson.listeningGloss)),
+      translations: savedTranslations(passages(JSON.parse(lesson.listeningChunks),lesson.listeningText),JSON.parse(lesson.listeningGloss)),
     },
     words: (lesson.words || []).map((word) => ({
       id: word.id,
@@ -181,6 +184,7 @@ function presentLesson(lesson: {
       correctCount: word.progress?.correctCount ?? 0,
       incorrectCount: word.progress?.incorrectCount ?? 0,
       intervals: word.progress ? previewDays(word.progress, new Date()) : null,
+      intervalMinutes: word.progress ? previewMinutes(word.progress,new Date()) : null,
     })),
     questions: (lesson.questions || []).map((question) => {
       const attempt = question.attempts[question.attempts.length - 1];
@@ -618,7 +622,6 @@ export async function updateOwnSettings(learner: VerifiedLearner, input: Record<
   const current = await ownSettings(learner);
   const themes = Object.keys(THEME_ZH);
   const modes = ["light", "dark", "system"];
-  const rates = [0.8, 0.9, 1, 1.1, 1.2];
   return db().userSettings.update({
     where: { userId: learner.learnerId },
     data: {
@@ -632,7 +635,7 @@ export async function updateOwnSettings(learner: VerifiedLearner, input: Record<
       wordPartsEnabled: input.wordPartsEnabled === undefined ? undefined : typeof input.wordPartsEnabled === "boolean" ? input.wordPartsEnabled : current.wordPartsEnabled,
       recommendationsEnabled: input.recommendationsEnabled === undefined ? undefined : typeof input.recommendationsEnabled === "boolean" ? input.recommendationsEnabled : current.recommendationsEnabled,
       colorMode: input.colorMode === undefined ? undefined : modes.includes(String(input.colorMode)) ? String(input.colorMode) : current.colorMode,
-      speechRate: input.speechRate === undefined ? undefined : rates.includes(Number(input.speechRate)) ? Number(input.speechRate) : current.speechRate,
+      speechRate: input.speechRate === undefined ? undefined : normalizeSpeechRate(input.speechRate, current.speechRate),
       updatedAt: new Date(),
     },
   });
@@ -718,6 +721,7 @@ export async function ownReviewQueue(learner: VerifiedLearner, now = new Date(),
     return true;
   });
   return {
+    historySupported: true,
     dueCount: rows.filter((row) => row.due <= now && !row.vocabulary.knownAlready).length,
     items: matched.map((row) => {
       const contexts = related.get(row.vocabularyId)!;
@@ -743,9 +747,22 @@ export async function ownReviewQueue(learner: VerifiedLearner, now = new Date(),
         stability: row.stability,
         userId: row.userId,
         intervals: previewDays(row, now),
+        intervalMinutes: previewMinutes(row, now),
       };
     }),
   };
+}
+
+// Read-only history for the selected sense group; never merge conflicting histories or other learners.
+export async function ownReviewHistory(learner: VerifiedLearner, vocabularyId: string) {
+  const rows=await reviewRows(db(),learner.learnerId);
+  const group=reviewGroups(rows).find(items=>items.some(row=>row.vocabularyId===vocabularyId));
+  if(!group)throw new AppError(404,"NOT_FOUND","找不到资源");
+  return {events:await db().reviewEvent.findMany({
+    where:{userId:learner.learnerId,vocabularyId:{in:group.map(row=>row.vocabularyId)},mode:"formal",changedSchedule:true},
+    select:{id:true,rating:true,createdAt:true,dueAfter:true},
+    orderBy:[{createdAt:"desc"},{id:"desc"}],take:20,
+  })};
 }
 
 export async function easierOwnExample(learner: VerifiedLearner, vocabularyId: string, clientRequestId?: unknown, inputTokens?: unknown) {
@@ -781,7 +798,7 @@ export async function recallOwnLesson(learner: VerifiedLearner, lessonId: string
   if (!lesson) throw new AppError(404, "NOT_FOUND", "找不到资源");
   const trimmed = text.trim();
   if (trimmed.length < 2) throw new AppError(400, "EMPTY", "请先用简短的话写下你听到的主要内容");
-  const gloss = JSON.parse(lesson.listeningGloss) as Record<string, string>;
+  const gloss = vocabularyGloss(JSON.parse(lesson.listeningGloss));
   const hits = Object.entries(gloss).filter(([lemma, meaning]) => trimmed.toLowerCase().includes(lemma.toLowerCase()) || trimmed.includes(meaning));
   return {
     mode: "local-heuristic",

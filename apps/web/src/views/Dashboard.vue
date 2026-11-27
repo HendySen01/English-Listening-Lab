@@ -9,10 +9,10 @@
         <h2>{{ data.lesson?.listening.title || "今天还没有课程" }}</h2>
         <p class="lede" v-if="data.lesson">{{ lessonMetadata(data.lesson) }}</p>
         <p class="lede" v-else>{{ data.generateError || "打开课程页后会按设置准备今天的内容。" }}</p>
-        <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="6" :aria-valuenow="done" aria-label="课程进度">
-          <span :style="{ width: `${Math.round(done / 6 * 100)}%` }"></span>
+        <div class="progress-track" role="progressbar" aria-valuemin="0" :aria-valuemax="steps.length" :aria-valuenow="done" aria-label="课程进度">
+          <span :style="{ width: `${Math.round(done / steps.length * 100)}%` }"></span>
         </div>
-        <p class="muted">进度 {{ done }}/6，当前在{{ currentLabel }}。到期复习 {{ data.dueCount }} 个。<span v-if="nextDue">下一次：{{ nextDue }}。</span></p>
+        <p class="muted">进度 {{ done }}/{{ steps.length }}，{{ done === steps.length ? "本课已完成" : `当前在${currentLabel}` }}。到期复习 {{ data.dueCount }} 个。<span v-if="nextDue">下一次：{{ nextDue }}。</span></p>
       </div>
       <router-link class="choice active" :to="data.lesson ? `/lesson/${data.lesson.id}` : '/lesson'">{{ started ? "继续学习" : "开始今日学习" }}</router-link>
     </article>
@@ -69,19 +69,12 @@ import { useAppStore } from "../stores/app";
 import StudyWeek from "../components/StudyWeek.vue";
 import { lessonMetadata } from "../lib/lessonMetadata";
 import { formatDue } from "../lib/due";
+import { steps, completedCount } from "../lib/learningFlow";
 
 const store = useAppStore();
 const data = computed(() => store.dashboard);
 const now = ref(new Date());
-const steps = [
-  { id: "review", label: "复习" },
-  { id: "vocabulary", label: "新词" },
-  { id: "parts", label: "词根" },
-  { id: "listening", label: "听力" },
-  { id: "shadow", label: "跟读" },
-  { id: "recall", label: "回忆" },
-];
-const done = computed(() => data.value?.lesson?.progress?.completed?.length || 0);
+const done = computed(() => completedCount(data.value?.lesson?.progress));
 const started = computed(() => done.value > 0 || (data.value?.lesson?.progress?.step && data.value.lesson.progress.step !== "review"));
 const currentLabel = computed(() => steps.find((step) => step.id === data.value?.lesson?.progress?.step)?.label || "复习");
 const nextDue = computed(() => {

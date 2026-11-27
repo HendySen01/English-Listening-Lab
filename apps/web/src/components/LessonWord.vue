@@ -13,9 +13,7 @@
           <span>·</span>
           <span>{{ speech.sourceLabel.value }} · {{ speech.status.value }}</span>
           <button class="rd-pill" type="button" @click="speak(word.example)">读例句</button>
-          <span class="rd-segment" role="group" aria-label="语速">
-            <button v-for="item in rates" :key="item" class="rd-pill" type="button" :aria-pressed="rate === item" :disabled="rateBusy" @click="setRate(item)">{{ item }}×</button>
-          </span>
+          <SpeechRateControl />
         </p>
         <p class="rd-sentence" style="font-size: clamp(22px, 2.4vw, 32px)" translate="no">{{ word.example }}</p>
         <BlurText :text="word.exampleZh" :clear="clear" @toggle="clear = !clear" />
@@ -44,6 +42,7 @@
 </template>
 
 <script setup lang="ts">
+import SpeechRateControl from "./SpeechRateControl.vue"
 import { computed, ref, watch } from "vue"
 import { Volume2 } from "lucide-vue-next"
 import BlurText from "../preview/BlurText.vue"
@@ -61,7 +60,7 @@ const clear = ref(false)
 const mark = ref<"" | "known" | "again">(props.word.knownAlready ? "known" : "")
 const markBusy = ref(false)
 const message = ref("")
-const { speech, rate, rates, rateBusy, rateError, setRate } = useStudySpeech()
+const { speech, rate, rateError } = useStudySpeech()
 const passageId = computed(() => `lesson:${props.lessonId}:word:${props.word.id}`)
 const lemma = computed(() => props.word.lemma)
 const sentence = computed(() => props.word.example)

@@ -1,3 +1,4 @@
+import { normalizeSpeechRate } from "./speechRates.js";
 import { fromNodeHeaders, toNodeHandler } from "better-auth/node";
 import { authMailConfigured } from "./authMail.js";
 import cors from "cors";
@@ -354,7 +355,7 @@ export function createApp() {
   app.post("/api/tts", async (req, res, next) => {
     try {
       const text = String(req.body?.text || "").slice(0, 1200);
-      const rate = [0.8, 0.9, 1, 1.1].includes(Number(req.body?.rate)) ? Number(req.body?.rate) : 1;
+      const rate = normalizeSpeechRate(req.body?.rate);
       if (!text.trim()) throw new AppError(400, "EMPTY", "没有可朗读的文本");
       const tts = ttsStatus();
       if (req.body?.useOnline !== true) {

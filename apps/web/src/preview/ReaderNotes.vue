@@ -18,8 +18,8 @@
       </div>
       <div class="rd-tools" style="margin-top: 16px">
         <button class="rd-pill primary" type="button" :disabled="loading" @click="$emit('explain')">{{ explainLabel }}</button>
-        <button class="rd-pill" type="button" :disabled="markBusy" :aria-pressed="mark === 'known'" @click="$emit('mark', 'known')">我已认识</button>
-        <button class="rd-pill" type="button" :disabled="markBusy" :aria-pressed="mark === 'again'" @click="$emit('mark', 'again')">需要加强</button>
+        <button v-if="!hideMarks" class="rd-pill" type="button" :disabled="markBusy" :aria-pressed="mark === 'known'" @click="$emit('mark', 'known')">我已认识</button>
+        <button v-if="!hideMarks" class="rd-pill" type="button" :disabled="markBusy" :aria-pressed="mark === 'again'" @click="$emit('mark', 'again')">需要加强</button>
       </div>
       <p v-if="error" class="rd-status" role="status">{{ error }}</p>
       <slot />
@@ -46,8 +46,8 @@
       </div>
       <div class="rd-tools" style="margin-top: 16px">
         <button class="rd-pill primary" type="button" :disabled="loading || source === 'cache' || source === 'live'" @click="$emit('explain')">{{ explainLabel }}</button>
-        <button class="rd-pill" type="button" :disabled="markBusy" :aria-pressed="mark === 'known'" @click="$emit('mark', 'known')">我已认识</button>
-        <button class="rd-pill" type="button" :disabled="markBusy" :aria-pressed="mark === 'again'" @click="$emit('mark', 'again')">需要加强</button>
+        <button v-if="!hideMarks" class="rd-pill" type="button" :disabled="markBusy" :aria-pressed="mark === 'known'" @click="$emit('mark', 'known')">我已认识</button>
+        <button v-if="!hideMarks" class="rd-pill" type="button" :disabled="markBusy" :aria-pressed="mark === 'again'" @click="$emit('mark', 'again')">需要加强</button>
       </div>
       <p v-if="error" class="rd-status" role="status">{{ error }}</p>
       <p v-if="mark && !markNote" class="rd-status" role="status">{{ mark === "known" ? "已在这次预览里记为认识。" : "已标成需要加强。" }}没有新建复习记录，重复点击也不会再加一条。</p>
@@ -111,6 +111,8 @@ const props = defineProps<{
   loading: boolean
   error: string
   columnScroll?: boolean
+  hideMarks?: boolean
+  initiallyExpanded?: boolean
   summary?: { pronunciation: string; partOfSpeech: string; definition: string; usage: string }
   markNote?: string
   markBusy?: boolean
@@ -128,7 +130,7 @@ const explainLabel = computed(() => {
   if (props.source === "cache" || props.source === "live" || props.source === "mock") return "已载入 AI 解释"
   return "AI 深度解析"
 })
-const deep = ref(false)
+const deep = ref(Boolean(props.initiallyExpanded))
 const foldId = useId()
 const open = ref(new Set<string>())
 function toggleDeep() {

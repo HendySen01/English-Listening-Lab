@@ -1,17 +1,15 @@
 <template>
   <section class="rd" v-if="lesson">
-    <p class="rd-kicker">{{ lesson.lessonDate }} · {{ lesson.sourceLabel }}</p>
+    <div class="rd-tools"><router-link v-if="route.query.from==='listening' || route.query.from==='standalone-listening'" class="rd-pill" :to="route.query.from==='listening'?`/lesson/${lesson.id}`:'/listening'">← 返回课程听力</router-link><span class="rd-kicker">{{ lesson.lessonDate }} · {{ lesson.sourceLabel }}</span><span class="rd-note">{{ index+1 }} / {{ passages.length }}</span></div>
     <h2 class="rd-title">{{ lesson.listening.title }}</h2>
-    <p class="rd-note">英文来自这节课。没有逐句中文的句子不会编造译文。</p>
+    <p class="rd-note">先读英文，遇到困难再查看中文。点击单词理解它在这句话里的用法。</p>
     <div class="rd-frame rd-workspace">
       <div class="rd-read">
         <div class="rd-tools">
           <button class="rd-pill" type="button" :disabled="index === 0" @click="index -= 1">上一句</button>
           <button class="rd-pill" type="button" :disabled="index === passages.length - 1" @click="index += 1">下一句</button>
           <button class="rd-pill primary" type="button" @click="speak(passages[index].sentence)">朗读句子</button>
-          <span class="rd-segment" role="group" aria-label="语速">
-            <button v-for="item in rates" :key="item" class="rd-pill" type="button" :aria-pressed="rate === item" :disabled="rateBusy" @click="setRate(item)">{{ item }}×</button>
-          </span>
+          <SpeechRateControl />
         </div>
         <p v-if="rateError" class="rd-note" role="status">{{ rateError }}</p>
         <p class="rd-sentence" translate="no">
@@ -21,7 +19,8 @@
           </template>
         </p>
         <BlurText v-if="passages[index].translation" :text="passages[index].translation" :clear="clear" @toggle="clear = !clear" />
-        <p v-else class="rd-source">这句没有保存中文译文。</p>
+        <p v-else class="rd-source">这句暂时没有译文。</p>
+        <TranslationFill :missing="missing" :busy="translationBusy" :error="translationError" @complete="complete" />
         <p class="rd-source">{{ voice }}</p>
       </div>
       <ReaderNotes
@@ -44,7 +43,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue"
+import SpeechRateControl from "../components/SpeechRateControl.vue"
+import TranslationFill from "../components/TranslationFill.vue"
+import { useLessonTranslations } from "../composables/useLessonTranslations"
+import { computed, nextTick, onMounted, ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import BlurText from "../preview/BlurText.vue"
 import ReaderNotes from "../preview/ReaderNotes.vue"
@@ -59,20 +61,17 @@ import "../preview/reader.css"
 const route = useRoute()
 const store = useAppStore()
 const lesson = ref<Lesson | null>(null)
+const {rows,missing,busy:translationBusy,error:translationError,complete}=useLessonTranslations(lesson)
 useStudyClock("context", () => lesson.value?.id || null)
 const errorText = ref("")
 const index = ref(0)
 const selected = ref("")
 const clear = ref(false)
 const voice = ref("浏览器语音，尚未播放")
-const { speech, rate, rates, rateBusy, rateError, setRate } = useStudySpeech()
+const { speech, rate, rateError } = useStudySpeech()
 const passages = computed(() => {
   if (!lesson.value) return []
-  const chunks = lesson.value.listening.chunks.filter(Boolean).map((sentence, chunkIndex) => ({
-    id: `${lesson.value?.id}:chunk:${chunkIndex}`,
-    sentence: sentence.replace(/\s*\/\s*/g, " "),
-    translation: "",
-  }))
+  const chunks = rows.value.map(row=>({id:`${lesson.value?.id}:chunk:${row.index}`,sentence:row.sentence,translation:row.translation}))
   const examples = lesson.value.words.map((word) => ({
     id: `${lesson.value?.id}:word:${word.id}`,
     sentence: word.example,
@@ -102,7 +101,7 @@ async function speak(text: string) {
   await speech.play(text, rate.value, false)
   voice.value = speech.sourceLabel.value.includes("浏览器") ? "浏览器语音" : speech.sourceLabel.value
 }
-watch(index, () => { clear.value = false })
+watch(index, () => { clear.value = false; selected.value = ""; speech.stop() })
 onMounted(async () => {
   try {
     if (!store.dashboard) await store.load()
@@ -117,6 +116,7 @@ onMounted(async () => {
     if (word) {
       const found = passages.value.findIndex((item) => item.id.endsWith(word.id))
       if (found >= 0) index.value = found
+      await nextTick()
       selected.value = word.lemma.toLowerCase()
     }
   } catch (err) {
