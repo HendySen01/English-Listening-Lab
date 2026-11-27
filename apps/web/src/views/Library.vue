@@ -38,17 +38,17 @@
           <h3 class="rd-label" style="margin-top: 14px">这句话中的用法 <span>IN THIS SENTENCE</span></h3>
           <p v-if="analysis" class="rd-copy">{{ analysis.usage }}</p>
           <p v-else class="rd-copy">深度解析会只针对上面这句，不会把词典定义当成句子用法。</p>
-          <button class="rd-pill" type="button" :disabled="loading" @click="explain">{{ loading ? "正在解析" : analysis ? "已载入这句的解析" : "深入解析这句" }}</button>
+          <button class="rd-pill" type="button" :disabled="loading || Boolean(analysis) && !canSupplement" @click="explain(canSupplement)">{{ loading ? "正在解析" : canSupplement ? "AI 补充英文构词" : analysis ? "已载入这句的解析" : "深入解析这句" }}</button>
           <p v-if="error" class="rd-status">{{ error }}</p>
           <ExpandFold :open="Boolean(analysis)" :limit="false">
             <div v-if="analysis" class="rd-section">
+              <template v-if="analysis.wordFormation">
+                <h3 class="rd-label">现代构词 <span>WORD FORMATION</span></h3>
+                <WordFormation :word="current.lemma" :formation="analysis.wordFormation" />
+              </template>
               <h3 class="rd-label">词源与词根 <span>ETYMOLOGY</span></h3>
               <p class="rd-copy">{{ analysis.etymology.originalImage }}</p>
-              <div class="rd-grid">
-                <div><strong>prefix</strong>{{ analysis.etymology.prefix || "无" }}</div>
-                <div><strong>root</strong>{{ analysis.etymology.root || "无" }}</div>
-                <div><strong>suffix</strong>{{ analysis.etymology.suffix || "无" }}</div>
-              </div>
+              <EtymologyParts :etymology="analysis.etymology" />
               <h3 class="rd-label">语义演变 <span>ROUTES</span></h3>
               <div v-for="route in analysis.semanticRoutes" :key="route.label" class="rd-compare">
                 <strong>{{ route.label }}</strong>
@@ -96,6 +96,8 @@ import SpeechRateControl from "../components/SpeechRateControl.vue"
 import BlurText from "../preview/BlurText.vue"
 import ExpandFold from "../preview/ExpandFold.vue"
 import { useExplanation } from "../preview/explain"
+import EtymologyParts from "../preview/EtymologyParts.vue"
+import WordFormation from "../components/WordFormation.vue"
 import { useStudySpeech } from "../composables/useStudySpeech"
 import { api } from "../api"
 import { formatDue, formatWhen } from "../lib/due"
@@ -156,7 +158,8 @@ const contexts = computed(() => words.value.filter((word) => current.value && wo
 const passageId = computed(() => current.value ? `lesson:${current.value.lessonId || "none"}:word:${current.value.id}` : "")
 const lemma = computed(() => current.value?.lemma || "")
 const sentence = computed(() => current.value?.example || "")
-const { analysis, loading, error, explain } = useExplanation(passageId, lemma, sentence)
+const { analysis, source, loading, error, explain } = useExplanation(passageId, lemma, sentence)
+const canSupplement = computed(() => source.value === "cache" && analysis.value?.type === "word" && !analysis.value.wordFormation)
 let timer = 0
 
 function familiarityLabel(value: string) {

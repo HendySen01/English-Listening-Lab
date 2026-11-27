@@ -18,10 +18,9 @@
       <p>搭配：{{ word.collocation }}</p>
       <button class="choice" @click="speech.play(word.example, rate)">读例句</button>
     </section>
-    <details v-if="word.morphology">
+    <details v-if="formation.parts.length">
       <summary>查看词根词缀</summary>
-      <p>{{ word.morphology.prefix || "无前缀" }} + {{ word.morphology.root }} + {{ word.morphology.suffix || "无后缀" }}</p>
-      <p>{{ word.morphology.meaningZh }}</p>
+      <WordFormation :word="word.lemma" :formation="formation" />
     </details>
     <div class="row">
       <button class="choice" :disabled="busy" @click="easier">{{ busy ? "正在改写…" : "AI 简化例句" }}</button>
@@ -35,12 +34,15 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import WordFormation from "./WordFormation.vue";
+import { legacyWordFormation } from "../lib/wordFormation";
 import { api } from "../api";
 import { progressStamp, withReviewRequest } from "../lib/reviewRequest";
 import { useSpeech } from "../composables/useSpeech";
 import type { Word } from "../stores/app";
 
 const props = defineProps<{ word: Word; rate: number }>();
+const formation = computed(() => legacyWordFormation(props.word.lemma, props.word.morphology, props.word.definitionEn));
 const emit = defineEmits<{ changed: [] }>();
 const speech = useSpeech();
 const message = ref("");

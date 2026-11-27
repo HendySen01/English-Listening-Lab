@@ -124,6 +124,7 @@ export function mountLearnerBusinessRoutes(app: express.Express) {
     String(req.body?.passageId || ""),
     String(req.body?.word || ""),
     String(req.body?.sentence || ""),
+    req.body?.refreshFormation,
   ));
   route("get", "/api/dashboard", async (req) => ownDashboard(await learnerOf(req)));
   route("get", "/api/settings", async (req) => ownSettings(await learnerOf(req)));

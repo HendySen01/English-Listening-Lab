@@ -45,7 +45,7 @@
         <p class="rd-copy">{{ analysis.usage }}</p>
       </div>
       <div class="rd-tools" style="margin-top: 16px">
-        <button class="rd-pill primary" type="button" :disabled="loading || source === 'cache' || source === 'live'" @click="$emit('explain')">{{ explainLabel }}</button>
+        <button class="rd-pill primary" type="button" :disabled="loading || (source === 'cache' || source === 'live') && !canSupplement" @click="$emit('explain', canSupplement)">{{ explainLabel }}</button>
         <button v-if="!hideMarks" class="rd-pill" type="button" :disabled="markBusy" :aria-pressed="mark === 'known'" @click="$emit('mark', 'known')">我已认识</button>
         <button v-if="!hideMarks" class="rd-pill" type="button" :disabled="markBusy" :aria-pressed="mark === 'again'" @click="$emit('mark', 'again')">需要加强</button>
       </div>
@@ -56,15 +56,15 @@
         {{ deep ? "收起深入解析" : "深入解析：词源、词根和语义线路" }}
       </button>
       <ExpandFold :id="foldId" :open="deep" :limit="!columnScroll">
+        <div v-if="analysis.wordFormation && !formationShown" class="rd-section">
+          <h3 class="rd-label">现代构词 <span>WORD FORMATION</span></h3>
+          <WordFormation :word="word" :formation="analysis.wordFormation" />
+        </div>
         <div class="rd-section">
           <h3 class="rd-label">词源与原始画面 <span>ETYMOLOGY</span></h3>
           <p class="rd-copy">{{ analysis.etymology.originalImage }}</p>
-          <div class="rd-grid">
-            <div><strong>prefix</strong>{{ analysis.etymology.prefix || "无" }}</div>
-            <div><strong>root</strong>{{ analysis.etymology.root || "无" }}</div>
-            <div><strong>suffix</strong>{{ analysis.etymology.suffix || "无" }}</div>
-          </div>
-          <p class="rd-copy">{{ analysis.etymology.origin }}（{{ analysis.etymology.certainty }}）</p>
+          <EtymologyParts :etymology="analysis.etymology" />
+          <p class="rd-copy">{{ analysis.etymology.origin }}<template v-if="analysis.etymology.certainty">（{{ analysis.etymology.certainty }}）</template></p>
         </div>
         <div class="rd-section">
           <h3 class="rd-label">语义演变 <span>SEMANTIC ROUTES</span></h3>
@@ -100,6 +100,8 @@ import { computed, ref, useId } from "vue"
 import { Volume2 } from "lucide-vue-next"
 import BlurText from "./BlurText.vue"
 import ExpandFold from "./ExpandFold.vue"
+import EtymologyParts from "./EtymologyParts.vue"
+import WordFormation from "../components/WordFormation.vue"
 import type { Analysis } from "./reader-data"
 import type { ExplainSource } from "./explain"
 
@@ -113,11 +115,13 @@ const props = defineProps<{
   columnScroll?: boolean
   hideMarks?: boolean
   initiallyExpanded?: boolean
+  formationShown?: boolean
   summary?: { pronunciation: string; partOfSpeech: string; definition: string; usage: string }
   markNote?: string
   markBusy?: boolean
 }>()
-defineEmits<{ speak: [text: string]; mark: [value: "known" | "again"]; explain: [] }>()
+defineEmits<{ speak: [text: string]; mark: [value: "known" | "again"]; explain: [refreshFormation?: boolean] }>()
+const canSupplement = computed(() => props.source === "cache" && props.analysis?.type === "word" && !props.analysis.wordFormation)
 const sourceLabel = computed(() => {
   if (props.source === "mock") return "Mock 解析。没有调用真实模型。"
   if (props.source === "live") return "实时 AI。刚刚由 DeepSeek 生成，并写入了预览缓存。"
@@ -127,6 +131,7 @@ const sourceLabel = computed(() => {
 })
 const explainLabel = computed(() => {
   if (props.loading) return "正在解析"
+  if (canSupplement.value) return "AI 补充英文构词"
   if (props.source === "cache" || props.source === "live" || props.source === "mock") return "已载入 AI 解释"
   return "AI 深度解析"
 })

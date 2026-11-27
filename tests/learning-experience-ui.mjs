@@ -31,10 +31,20 @@ const politely = {
 const fixtureAnalysis = {
   text: "politely", type: "word", pronunciation: politely.ipa, partOfSpeech: "adverb",
   definition: "礼貌地", usage: "修饰 refused，描述拒绝的方式。",
-  etymology: { prefix: "", root: "polite", suffix: "-ly", origin: "测试词源", originalImage: "测试原始画面", certainty: "测试" },
+  etymology: { prefix: "无", root: "polite", suffix: "none", origin: "测试词源", originalImage: "测试原始画面", certainty: "测试" },
   semanticRoutes: [{ label: "测试线路", domain: "日常", steps: "测试语义过程", modernMeaning: "礼貌地" }],
   comparisons: [],
   examples: [{ text: "She spoke politely.", translation: "她礼貌地说话。", contextNote: "测试例句" }],
+};
+const fixtureFormation = {
+  ...fixtureAnalysis,
+  wordFormation: {
+    parts: [
+      { kind: "base", text: "polite", explanationEn: "Shows respect for others." },
+      { kind: "suffix", text: "ly", explanationEn: "Describes how something is done." },
+    ],
+    definitionEn: "In a way that shows respect for others.",
+  },
 };
 
 // Capture from the top so sticky navigation is not embedded halfway down full-page images.
@@ -174,9 +184,13 @@ async function verify(engine, name, viewport, mode) {
     }
     if (p === "/api/preview/explain" && method === "GET") {
       return json(url.searchParams.get("word") === "politely" && url.searchParams.get("sentence") === politely.example
-        ? { analysis: fixtureAnalysis, source: "cache" } : { source: "miss" });
+        ? { analysis: explainPosts ? fixtureFormation : fixtureAnalysis, source: "cache" } : { source: "miss" });
     }
-    if (p === "/api/preview/explain" && method === "POST") { explainPosts++; return json({ error: "No paid calls in UI test" }, 403); }
+    if (p === "/api/preview/explain" && method === "POST") {
+      assert.equal(route.request().postDataJSON().refreshFormation, true);
+      explainPosts++;
+      return json({ analysis: fixtureFormation, source: "live" });
+    }
     if(p==="/api/quiz/fixture-quiz/answer" && method==="POST"){const q=lesson.questions[0];Object.assign(q,{answered:true,selected:route.request().postDataJSON().selected,correct:true,answerIndex:0,explanationEn:"It describes a respectful manner.",explanationZh:"它描述礼貌的方式。",evidence:"She politely refused his offer.",whyWrong:["","Not loudness.","Not time."]});return json({ok:true});}
     if (p === "/api/sessions") return json({ ok: true });
     unexpected.push(method + " " + p);
@@ -210,6 +224,14 @@ async function verify(engine, name, viewport, mode) {
     await parts.getByRole("heading", { name: "词源与构词" }).waitFor();
     await parts.getByText("测试原始画面", { exact: true }).waitFor();
     assert.equal(explainPosts, 0, "Existing cached explanation must not request a model");
+    assert.deepEqual(await parts.locator(".piece strong").allTextContents(), ["polite", "-ly"]);
+    assert.equal(await parts.locator(".pieces > span").count(), 1);
+    assert.equal(await parts.locator(".etymology-parts > div").count(), 1);
+    await parts.getByRole("button", { name: "AI 补充英文构词" }).click();
+    await parts.getByText("In a way that shows respect for others.", { exact: false }).waitFor();
+    assert.deepEqual(await parts.locator(".formation-lines strong").allTextContents(), ["polite", "-ly", "politely"]);
+    await parts.getByRole("button", { name: "已载入 AI 解释" }).waitFor();
+    assert.equal(explainPosts, 1);
     assert.equal(await parts.getByRole("button", { name: "我已认识" }).count(), 0, "Parts page must not show non-wired marks");
     await checkTextContrast(parts.locator(".rd-copy").first(),"Word formation body text");
     await checkTextContrast(parts.locator(".rd-kicker").first(),"Word formation caption");
@@ -328,6 +350,7 @@ async function verify(engine, name, viewport, mode) {
     await page.reload();
     await page.getByRole("heading",{name:"本课学习完成",exact:true}).waitFor();
     await capture(page,name,"course-complete");
+    assert.equal(explainPosts, 1, "Reopening the course and switching stages must reuse the cache");
     const generate = page.getByRole("button", { name: "重新生成课程", exact: true });
     await generate.click();
     const busy = page.getByRole("button", { name: "正在生成…", exact: true });

@@ -7,6 +7,7 @@ import { aiOutputTokenLimit, assertRealSpendAllowed, ensureAiChargeTable, withAi
 import { explanationSystemPrompt, lookupPreviewExplanation, promptVersion, validateExplanation } from "./previewExplain.js";
 import { learnerDb } from "./runtimeClients.js";
 import { vocabularyIpa } from "./pronunciation.js";
+import { formationVersion } from "./wordFormation.js";
 
 const plain = (text: string) => text.replace(/\s*\/\s*/g, " ").trim();
 
@@ -18,7 +19,7 @@ async function readContext(learner: VerifiedLearner, passageId: string, word: st
     throw new AppError(400, "PREVIEW_INPUT", "需要目标词和完整句子。");
   }
   const sample = lookupPreviewExplanation(passageId, word, sentence);
-  if (sample) return { sample, passageId, word, sentence, prefix: "" };
+  if (sample) return { sample, passageId, word, sentence, prefix: "", legacyPrefix: "" };
 
   const db = learnerDb();
   const userId = learner.learnerId;
@@ -40,8 +41,11 @@ async function readContext(learner: VerifiedLearner, passageId: string, word: st
   if (!target || !target.some(text => plain(text) === plain(sentence))) {
     throw new AppError(404, "NOT_FOUND", "找不到当前账号的语境。");
   }
-  const digest = createHash("sha256").update(JSON.stringify([promptVersion, passageId, word.toLowerCase(), sentence])).digest("hex").slice(0, 56);
-  return { sample: null, passageId, word, sentence, prefix: `explain-${digest}-` };
+  const prefixFor = (...versions: string[]) => {
+    const digest = createHash("sha256").update(JSON.stringify([promptVersion, ...versions, passageId, word.toLowerCase(), sentence])).digest("hex").slice(0, 56);
+    return `explain-${digest}-`;
+  };
+  return { sample: null, passageId, word, sentence, prefix: prefixFor(formationVersion), legacyPrefix: prefixFor() };
 }
 
 async function findRequest(learner: VerifiedLearner, prefix: string) {
@@ -53,21 +57,33 @@ async function findRequest(learner: VerifiedLearner, prefix: string) {
   });
 }
 
+function cachedResult(row: Awaited<ReturnType<typeof findRequest>>) {
+  return row?.status === "succeeded" && row.resultJson ? JSON.parse(row.resultJson) : null;
+}
+
 export async function cachedOwnedExplanation(learner: VerifiedLearner, passageId: string, word: string, sentence: string) {
   const context = await readContext(learner, passageId, word, sentence);
   if (context.sample) return { ...context.sample, charged: false };
-  const prior = await findRequest(learner, context.prefix);
-  return prior?.status === "succeeded" && prior.resultJson
-    ? { ...JSON.parse(prior.resultJson), source: "cache", charged: false }
+  const cached = cachedResult(await findRequest(learner, context.prefix))
+    ?? cachedResult(await findRequest(learner, context.legacyPrefix));
+  return cached
+    ? { ...cached, source: "cache", charged: false }
     : { source: "miss" };
 }
 
-export async function explainOwnedPassage(learner: VerifiedLearner, passageId: string, word = "", sentence = "", _clientRequestId?: unknown) {
+export async function explainOwnedPassage(learner: VerifiedLearner, passageId: string, word = "", sentence = "", refreshFormation?: unknown) {
   const context = await readContext(learner, passageId, word, sentence);
   if (context.sample) return { ...context.sample, ok: true, charged: false };
   const prior = await findRequest(learner, context.prefix);
-  if (prior?.status === "succeeded" && prior.resultJson) {
-    return { ...JSON.parse(prior.resultJson), source: "cache", charged: false };
+  const cached = cachedResult(prior);
+  if (cached) return { ...cached, source: "cache", charged: false };
+  const legacyRequest = await findRequest(learner, context.legacyPrefix);
+  const legacy = cachedResult(legacyRequest);
+  if (legacy && (refreshFormation !== true || legacy.analysis?.type !== "word")) {
+    return { ...legacy, source: "cache", charged: false };
+  }
+  if (legacyRequest?.status === "pending" || legacyRequest?.status === "unknown") {
+    throw new AppError(409, "AI_PENDING", "上次解析仍在处理或结果不明确，没有重复调用。");
   }
 
   const configured = deepseekLessonStatus();
@@ -99,7 +115,7 @@ export async function explainOwnedPassage(learner: VerifiedLearner, passageId: s
     }
     const body = await response.json().catch(() => null);
     const choice = body?.choices?.[0];
-    const parsed = validateExplanation(choice?.message?.content);
+    const parsed = validateExplanation(choice?.message?.content, context.word);
     if (choice?.finish_reason !== "stop" || !parsed.ok) {
       console.warn("DeepSeek explanation response rejected", {
         truncated: choice?.finish_reason === "length",
@@ -108,9 +124,10 @@ export async function explainOwnedPassage(learner: VerifiedLearner, passageId: s
       });
       throw new AppError(502, "AI_RESPONSE_REJECTED", "深度解析未返回完整结果，请稍后再试。");
     }
-    return { ok: true, source: "live", model: configured.model, analysis: {
-      ...parsed.data, pronunciation: vocabularyIpa(context.word) || "",
-    } };
+    const analysis = legacy?.analysis
+      ? { ...legacy.analysis, wordFormation: parsed.data?.wordFormation }
+      : { ...parsed.data, pronunciation: vocabularyIpa(context.word) || "" };
+    return { ok: true, source: "live", model: configured.model, analysis };
   });
   return { ...result.value, source: result.replayed ? "cache" : "live", charged: !result.replayed };
 }

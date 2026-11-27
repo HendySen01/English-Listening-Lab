@@ -1,8 +1,12 @@
 import { execSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { repoRoot } from "./paths.ts";
+import { promptVersion, validateExplanation } from "./previewExplain.ts";
+import { validateWordFormation } from "./wordFormation.ts";
+import { legacyWordFormation, formationText } from "../../web/src/lib/wordFormation.ts";
 import {
   assignLearnerOwnership,
   authDatabasePath,
@@ -374,8 +378,10 @@ try {
       const request = JSON.parse(String(init?.body));
       if (String(request.messages[0].content).includes("词源与语境解析专家")) {
         explanationCalls += 1;
+        const { word } = JSON.parse(request.messages[1].content);
         const content = JSON.stringify({
-          text: "clinic", type: "word", pronunciation: "", partOfSpeech: "名词", definition: "诊所", usage: "表示就诊地点。",
+          text: word, type: "word", pronunciation: "", partOfSpeech: "名词", definition: "诊所", usage: "表示就诊地点。",
+          wordFormation: { parts: [], definitionEn: "A place where people get medical care." },
           etymology: { origin: "来源待证实", originalImage: "就诊地点" },
           semanticRoutes: ["地点", "机构", "服务"].map(label => ({ label, steps: "延伸", modernMeaning: label })),
           comparisons: [], examples: [{ text: "Visit the clinic.", translation: "去诊所。" }, { text: "The clinic is open.", translation: "诊所开门了。" }],
@@ -520,12 +526,63 @@ try {
     });
     const streamed = await explain(alphaCookie);
     const replayedAnalysis = await (await explain(alphaCookie)).json() as { source?: string; charged?: boolean };
-    const cachedAnalysis = await (await api("/api/preview/explain?" + new URLSearchParams(analysisInput), alphaCookie)).json() as { source?: string };
+    const cachedAnalysis = await (await api("/api/preview/explain?" + new URLSearchParams(analysisInput), alphaCookie)).json() as {
+      source?: string; analysis?: { wordFormation?: { parts: unknown[]; definitionEn: string }; usage: string };
+    };
     const changedContext = await (await api("/api/preview/explain?" + new URLSearchParams({ ...analysisInput, sentence: "I went to the clinic." }), alphaCookie)).json() as { source?: string };
     check("[HTTP] 解析只调用一次且 GET/POST 命中无扣次，句子与用户隔离",
       streamed.status === 200 && replayedAnalysis.source === "cache" && replayedAnalysis.charged === false
-      && cachedAnalysis.source === "cache" && changedContext.source === "miss" && explanationCalls === 1
+      && cachedAnalysis.source === "cache" && cachedAnalysis.analysis?.wordFormation?.parts.length === 0
+      && changedContext.source === "miss" && explanationCalls === 1
       && (await explain(betaCookie)).status === 404);
+    const brief = { kind: "base", text: "brief", explanationEn: "Short in time or length." };
+    const ly = { kind: "suffix", text: "ly", explanationEn: "Describes how something is done." };
+    const definitionEn = "In a short or concise way.";
+    const briefly = legacyWordFormation("briefly", { prefix: "brief-", root: "brief", suffix: "-ly" }, definitionEn);
+    check("[构词] 旧课程 briefly 只显示 brief 和 -ly", briefly.parts.map(formationText).join(" + ") === "brief + -ly");
+    check("[构词] 验证多词缀、复合词及不拆分形式，拒绝重复词基和跨词拼写",
+      Boolean(validateWordFormation({ parts: [brief, ly], definitionEn }, "briefly"))
+      && Boolean(validateWordFormation({ parts: [
+        { kind: "prefix", text: "un", explanationEn: "Means not." },
+        { kind: "base", text: "help", explanationEn: "To make something easier." },
+        { kind: "suffix", text: "ful", explanationEn: "Full of something." },
+        { kind: "suffix", text: "ness", explanationEn: "Forms the name of a quality." },
+      ], definitionEn: "The quality of not helping." }, "unhelpfulness"))
+      && Boolean(validateWordFormation({ parts: [
+        { kind: "base", text: "note", explanationEn: "A short written message." },
+        { kind: "base", text: "book", explanationEn: "A set of pages." },
+      ], definitionEn: "A book for writing notes." }, "notebook"))
+      && validateWordFormation({ parts: [{ ...brief, kind: "prefix" }, brief, ly], definitionEn }, "briefly") === null
+      && validateWordFormation({ parts: [brief, ly], definitionEn }, "brief") === null);
+    const legacyInput = { ...analysisInput, sentence: "I went to the clinic." };
+    const { wordFormation: _formation, ...legacyFields } = cachedAnalysis.analysis!;
+    const legacyAnalysis = { ...legacyFields, usage: "旧缓存的语境解析。" };
+    const legacyDigest = createHash("sha256").update(JSON.stringify([
+      promptVersion, legacyInput.passageId, legacyInput.word.toLowerCase(), legacyInput.sentence,
+    ])).digest("hex").slice(0, 56);
+    check("[构词] 旧版解析可验证读取", validateExplanation(legacyAnalysis).ok && !validateExplanation(legacyAnalysis, legacyInput.word).ok);
+    await user.aiCharge.create({ data: {
+      id: "legacy-explanation-fixture", userId: learnerA.learnerId, requestId: `explain-${legacyDigest}-000000`,
+      kind: "explain", studyDate: "2020-01-01", model: "fixture", status: "succeeded", reservedCount: 1,
+      createdAt: new Date("2020-01-01T00:00:00Z"),
+      resultJson: JSON.stringify({ analysis: legacyAnalysis, model: "fixture" }),
+    } });
+    const legacyGet = () => api("/api/preview/explain?" + new URLSearchParams(legacyInput), alphaCookie);
+    const legacyPost = (refreshFormation = false) => api("/api/preview/explain", alphaCookie, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...legacyInput, refreshFormation }),
+    });
+    const oldRead = await (await legacyGet()).json();
+    const oldReplay = await (await legacyPost()).json();
+    check("[构词] 旧解析仅在显式补充时发送模型请求",
+      oldRead.analysis?.usage === legacyAnalysis.usage && oldReplay.charged === false && explanationCalls === 1);
+    const supplementResponses = await Promise.all([legacyPost(true), legacyPost(true)]);
+    const supplement = await supplementResponses.find(response => response.ok)?.json();
+    const savedFormation = await (await legacyGet()).json();
+    const reusedFormation = await (await legacyPost(true)).json();
+    check("[构词] 并发补充只请求一次，保留旧解析并缓存不可拆分结论",
+      explanationCalls === 2 && supplement?.analysis?.usage === legacyAnalysis.usage
+      && savedFormation.analysis?.wordFormation?.parts.length === 0
+      && reusedFormation.source === "cache" && reusedFormation.charged === false);
     const chargesBeforeSpeech = await user.aiCharge.count();
     const synthesize = () => api("/api/tts", alphaCookie, {
       method: "POST", headers: { "Content-Type": "application/json" },

@@ -41,7 +41,7 @@ export function deepseekLessonRequest(settings: {
       listeningTitle: "English title", listeningChunks: ["English sentence"], listeningTranslations: [{index:0,sentence:"exact English sentence",translation:"简体中文译文"}], poolNote: "简短说明",
       words: [{ lemma: "word", pos: "part of speech", meaningZh: "中文", definitionEn: "short definition",
         collocation: "common phrase", example: "English sentence", exampleZh: "中文",
-        morphology: "null or {prefix, root, suffix, meaningZh, example, confident:true}; use null for absent affixes" }],
+        morphology: "null or {prefix, root, suffix, meaningZh, example, confident:true}; use only actual modern English parts, null for absent affixes. For briefly use {prefix:null,root:'brief',suffix:'-ly'} with the required fields. Never repeat the base as an affix." }],
       questions: [{ kind: "context | sentence | listening", prompt: "question", options: ["a", "b", "c"],
         answerIndex: 0, explanationEn: "English", explanationZh: "中文", simplerZh: "简短中文",
         evidence: "source phrase", whyWrong: ["", "reason", "reason"] }],

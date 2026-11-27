@@ -39,7 +39,7 @@ export function useExplanation(passageId: Ref<string>, word: Ref<string>, senten
     } catch { /* A cache lookup can fail independently of an explicit explanation request. */ }
   }
 
-  async function explain() {
+  async function explain(refreshFormation = false) {
     if (!word.value || loading.value) return
     const selected = selection
     cacheRequest?.abort()
@@ -49,7 +49,7 @@ export function useExplanation(passageId: Ref<string>, word: Ref<string>, senten
       const response = await fetch("/api/preview/explain", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ passageId: passageId.value, word: word.value, sentence: sentence.value }),
+        body: JSON.stringify({ passageId: passageId.value, word: word.value, sentence: sentence.value, refreshFormation }),
       })
       const data = await response.json()
       if (selected !== selection) return
@@ -58,7 +58,7 @@ export function useExplanation(passageId: Ref<string>, word: Ref<string>, senten
       source.value = data.source === "cache" ? "cache" : data.source === "mock" ? "mock" : "live"
     } catch (cause) {
       if (selected !== selection) return
-      source.value = sample.value ? "sample" : "error"
+      if (!remote.value) source.value = sample.value ? "sample" : "error"
       error.value = cause instanceof Error ? cause.message : "解析失败"
     } finally {
       if (selected === selection) loading.value = false
