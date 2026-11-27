@@ -4,6 +4,29 @@ import { assertDevelopmentPair } from "../scripts/neon-dev/guard.mjs";
 const businessSchema = "lab_phase_h";
 const authSchema = "lab_phase_h_auth";
 
+function assertPreviewPaidCalls(env: NodeJS.ProcessEnv) {
+  const paid = env.AI_REAL_CALLS === "1" || env.ONLINE_TTS_ENABLED === "1" || env.DEEPSEEK_API_KEY?.trim();
+  if (!paid) return;
+  if (env.PREVIEW_AI_ACCEPTANCE !== "1" || env.VERCEL !== "1" || env.VERCEL_ENV !== "preview"
+      || env.VERCEL_GIT_COMMIT_REF !== "redesign/learning-experience") {
+    throw new Error("预览启动拒绝未隔离的付费模型配置。");
+  }
+  if (!env.DEEPSEEK_API_KEY?.trim() || env.AI_REAL_CALLS !== "1"
+      || env.DEEPSEEK_BASE_URL !== "https://api.deepseek.com"
+      || (env.ONLINE_TTS_ENABLED === "1" && env.ONLINE_TTS_PROVIDER !== "deepseek")) {
+    throw new Error("Preview 付费验收配置不完整或供应商不匹配。");
+  }
+  for (const [name, maximum] of [["AI_USER_DAILY_LIMIT", 12], ["AI_SITE_DAILY_LIMIT", 30]] as const) {
+    const value = Number(env[name]);
+    if (!Number.isInteger(value) || value < 1 || value > maximum) {
+      throw new Error("Preview 付费验收必须设置独立的低额度。");
+    }
+  }
+  if (env.AUTH_SIGNUP_ENABLED === "1" && !/^[^\s]{8,64}$/.test(env.AUTH_INVITE_CODE?.trim() ?? "")) {
+    throw new Error("Preview 付费验收要求邀请码注册或关闭注册。");
+  }
+}
+
 function schemaOf(raw: string) {
   return new URL(raw).searchParams.get("schema") || "";
 }
@@ -73,6 +96,6 @@ export function assertPreviewBoot(env = process.env) {
     DATABASE_URL: env.NEON_DATABASE_URL,
     DIRECT_URL: env.NEON_DIRECT_URL,
   });
-  if (env.DEEPSEEK_API_KEY?.trim()) throw new Error("预览启动拒绝携带可直接调用的付费模型密钥。");
+  assertPreviewPaidCalls(env);
   return { mode: "postgres-guarded" as const, endpoint: identity.endpoint, database: identity.database };
 }

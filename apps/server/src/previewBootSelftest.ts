@@ -52,6 +52,26 @@ check("[启动] production 主机被拒绝", rejected({
   NEON_DIRECT_URL: "postgresql://user:secret@production.example/neondb?sslmode=require",
 }).includes("Refusing"));
 check("[启动] 携带付费模型密钥被拒绝", rejected({ ...development, DEEPSEEK_API_KEY: "sk-test" }).includes("付费"));
+const paidPreview = {
+  ...development,
+  VERCEL: "1",
+  VERCEL_ENV: "preview",
+  VERCEL_URL: "english-listening-lab-preview.vercel.app",
+  VERCEL_GIT_COMMIT_REF: "redesign/learning-experience",
+  PREVIEW_AI_ACCEPTANCE: "1",
+  DEEPSEEK_API_KEY: "sk-test",
+  DEEPSEEK_BASE_URL: "https://api.deepseek.com",
+  AI_REAL_CALLS: "1",
+  AI_USER_DAILY_LIMIT: "8",
+  AI_SITE_DAILY_LIMIT: "16",
+  ONLINE_TTS_ENABLED: "1",
+  ONLINE_TTS_PROVIDER: "deepseek",
+};
+check("[启动] 仅独立 Preview 配置可启用真实模型", assertPreviewBoot(paidPreview).mode === "postgres-guarded");
+check("[启动] 拒绝其他分支的真实模型配置", rejected({ ...paidPreview, VERCEL_GIT_COMMIT_REF: "main" }).includes("隔离"));
+check("[启动] 拒绝未限制额度的付费 Preview", rejected({ ...paidPreview, AI_SITE_DAILY_LIMIT: "" }).includes("额度"));
+check("[启动] 拒绝未配置邀请码的付费 Preview 注册", rejected({ ...paidPreview, AUTH_SIGNUP_ENABLED: "1" }).includes("邀请码"));
+check("[启动] 拒绝替换付费 Preview 供应商", rejected({ ...paidPreview, DEEPSEEK_BASE_URL: "https://example.test" }).includes("供应商"));
 check("[启动] 打开公开注册被拒绝", rejected({ ...development, AUTH_SIGNUP: "open" }).includes("注册"));
 check("[启动] Preview 可以单独启用注册开关", assertPreviewBoot({
   ...development,
